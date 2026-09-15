@@ -5,7 +5,8 @@
   "description": "Backend Engineering Agent Platform MVP — Angular UI, Express orchestrator, Claude Code execution layer.",
   "workspaces": [
     "server",
-    "web"
+    "web",
+    "e2e"
   ],
   "engines": {
     "node": "^22.22.3 || ^24.15.0 || >=26.0.0"
@@ -18,6 +19,7 @@
     "test": "npm run test --workspace server && npm run test --workspace web",
     "test:server": "npm run test --workspace server",
     "test:web": "npm run test --workspace web",
+    "test:e2e": "npm run test --workspace e2e",
     "lint": "npm run lint --workspace server"
   },
   "devDependencies": {

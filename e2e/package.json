@@ -1,0 +1,13 @@
+{
+  "name": "@backend-agent/e2e",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Committed browser E2E coverage for the Backend Engineering Agent Platform, run against the mock executor.",
+  "scripts": {
+    "test": "playwright test",
+    "test:headed": "playwright test --headed"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.63.0"
+  }
+}
