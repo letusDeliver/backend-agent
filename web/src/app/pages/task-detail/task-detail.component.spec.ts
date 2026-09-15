@@ -29,6 +29,7 @@ function makeTaskService(task: Task): jest.Mocked<TaskService> {
     getTask: jest.fn().mockReturnValue(of({ task })),
     watchEvents: jest.fn().mockReturnValue(NEVER),
     getAgents: jest.fn().mockReturnValue(of({ selectedAgents: task.selectedAgents, reports: [] })),
+    getTaskMemory: jest.fn().mockReturnValue(of({ contextPack: null })),
     getReconciliation: jest.fn().mockReturnValue(of({ reconciliation: null })),
     getImplementationPlan: jest.fn().mockReturnValue(of({ plan: null })),
     getExecutionReport: jest.fn().mockReturnValue(of({ report: null })),

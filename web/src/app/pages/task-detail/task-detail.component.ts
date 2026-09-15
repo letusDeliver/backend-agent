@@ -6,6 +6,7 @@ import { TaskService } from '../../services/task.service';
 import {
   AGENT_LABELS,
   AgentType,
+  ContextPack,
   ExecutionReport,
   FinalHandoff,
   ImplementationPlan,
@@ -53,6 +54,7 @@ export class TaskDetailComponent implements OnInit, OnDestroy {
   readonly task = signal<Task | null>(null);
   readonly events = signal<TaskEvent[]>([]);
   readonly specialistReports = signal<SpecialistReport[]>([]);
+  readonly memoryPack = signal<ContextPack | null>(null);
   readonly reconciliation = signal<Reconciliation | null>(null);
   readonly plan = signal<ImplementationPlan | null>(null);
   readonly executionReport = signal<ExecutionReport | null>(null);
@@ -126,6 +128,7 @@ export class TaskDetailComponent implements OnInit, OnDestroy {
     if (task.status === 'created' || task.status === 'inspecting') return;
 
     this.taskService.getAgents(task.id).subscribe(({ reports }) => this.specialistReports.set(reports));
+    this.taskService.getTaskMemory(task.id).subscribe(({ contextPack }) => this.memoryPack.set(contextPack));
 
     if (['reconciling', 'planning', 'implementing', 'reviewing', 'completed', 'blocked'].includes(task.status)) {
       this.taskService.getReconciliation(task.id).subscribe(({ reconciliation }) => this.reconciliation.set(reconciliation));

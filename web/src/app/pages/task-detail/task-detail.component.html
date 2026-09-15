@@ -85,6 +85,38 @@
     </div>
   }
 
+  <!-- MEMORY -->
+  @if (memoryPack(); as memoryPack) {
+    <h2 class="section-heading">Memory</h2>
+    <div class="card">
+      <div class="kv-row"><span class="kv-key">Retrieved</span><span class="kv-value">{{ memoryPack.retrievedCount }} memories</span></div>
+      <div class="kv-row"><span class="kv-key">Included</span><span class="kv-value">{{ memoryPack.includedCount }}</span></div>
+      <div class="kv-row"><span class="kv-key">Excluded</span><span class="kv-value">{{ memoryPack.excludedCount }}</span></div>
+
+      @if (memoryPack.conflicts.length) {
+        <p class="kv-key risks-heading">Conflicts (repository evidence takes precedence)</p>
+        <ul class="risk-list">
+          @for (c of memoryPack.conflicts; track c) {
+            <li>{{ c }}</li>
+          }
+        </ul>
+      }
+
+      @if (memoryPack.entries.length) {
+        <p class="kv-key files-heading">Included in specialist context</p>
+        @for (entry of memoryPack.entries; track entry.memoryId) {
+          <div class="decision-block">
+            <p class="decision-title">{{ entry.summary }}</p>
+            <p class="decision-detail"><strong>Why included:</strong> {{ entry.reason }}</p>
+            <p class="decision-detail"><strong>Confidence:</strong> {{ (entry.confidence * 100) | number: '1.0-0' }}% &middot; <strong>Scope:</strong> {{ entry.scope === 'global' ? 'Global' : 'Project' }}</p>
+          </div>
+        }
+      } @else {
+        <p class="empty-state">No relevant validated memory for this task yet.</p>
+      }
+    </div>
+  }
+
   <!-- SPECIALISTS -->
   <h2 class="section-heading">Specialists</h2>
   <div class="specialist-grid">

@@ -79,6 +79,8 @@ export type EventType =
   | "AGENT_SELECTED"
   | "WORKSPACE_PREPARED"
   | "WORKSPACE_PREPARATION_FAILED"
+  | "MEMORY_RETRIEVED"
+  | "CANDIDATE_LESSONS_GENERATED"
   | "AGENT_ANALYSIS_STARTED"
   | "AGENT_ANALYSIS_COMPLETED"
   | "RECONCILIATION_STARTED"
@@ -223,6 +225,59 @@ export interface FinalHandoff {
   warnings: number;
   executionMode: ExecutionMode;
   status: "completed" | "blocked";
+  createdAt: string;
+}
+
+export type MemoryType = "task_history" | "project_memory" | "global_knowledge" | "candidate_lesson" | "validated_lesson";
+export type MemoryValidationStatus = "validated" | "candidate" | "rejected" | "historical";
+
+export interface MemoryProvenance {
+  taskId?: string;
+  agent?: string;
+  artifact?: string;
+  decision?: string;
+  humanEdited?: boolean;
+  approvedAt?: string;
+  approvedBy?: string;
+  rejectedAt?: string;
+}
+
+export interface MemoryItem {
+  id: string;
+  type: MemoryType;
+  scope: string;
+  content: string;
+  technology: string[];
+  taskType?: string;
+  validationStatus: MemoryValidationStatus;
+  provenance: MemoryProvenance;
+  confidence: number;
+  supersedes?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ContextPackEntry {
+  memoryId: string;
+  type: MemoryType;
+  validationStatus: MemoryValidationStatus;
+  scope: string;
+  confidence: number;
+  technology: string[];
+  summary: string;
+  reason: string;
+  score: number;
+}
+
+export interface ContextPack {
+  taskId: string;
+  query: { text: string; technology: string[]; scope: string };
+  retrievedCount: number;
+  includedCount: number;
+  excludedCount: number;
+  entries: ContextPackEntry[];
+  excludedIds: string[];
+  conflicts: string[];
   createdAt: string;
 }
 

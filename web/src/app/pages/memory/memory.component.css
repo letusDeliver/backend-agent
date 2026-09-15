@@ -1,0 +1,45 @@
+.memory-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.memory-content {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.memory-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.memory-provenance {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+
+.memory-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.edit-box {
+  width: 100%;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-primary);
+  padding: 10px 12px;
+  font-size: 13px;
+  font-family: inherit;
+  resize: vertical;
+}
+
+.rejected {
+  opacity: 0.6;
+}

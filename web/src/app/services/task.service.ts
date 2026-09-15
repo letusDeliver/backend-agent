@@ -2,9 +2,11 @@ import { Injectable } from "@angular/core";
 import { HttpClient } from "@angular/common/http";
 import { Observable } from "rxjs";
 import type {
+  ContextPack,
   ExecutionReport,
   FinalHandoff,
   ImplementationPlan,
+  MemoryItem,
   Reconciliation,
   ReviewReport,
   SpecialistReport,
@@ -81,6 +83,33 @@ export class TaskService {
     return this.http.get<Stats>(`${this.baseUrl}/stats`);
   }
 
+  getTaskMemory(id: string): Observable<{ contextPack: ContextPack | null }> {
+    return this.http.get<{ contextPack: ContextPack | null }>(`${this.baseUrl}/tasks/${id}/memory`);
+  }
+
+  listMemory(filter?: { type?: string; validationStatus?: string }): Observable<{ items: MemoryItem[] }> {
+    const params: Record<string, string> = {};
+    if (filter?.type) params['type'] = filter.type;
+    if (filter?.validationStatus) params['validationStatus'] = filter.validationStatus;
+    return this.http.get<{ items: MemoryItem[] }>(`${this.baseUrl}/memory`, { params });
+  }
+
+  getMemoryCandidates(): Observable<{ items: MemoryItem[] }> {
+    return this.http.get<{ items: MemoryItem[] }>(`${this.baseUrl}/memory/candidates`);
+  }
+
+  approveMemory(id: string, approvedBy?: string): Observable<{ item: MemoryItem }> {
+    return this.http.post<{ item: MemoryItem }>(`${this.baseUrl}/memory/${id}/approve`, { approvedBy });
+  }
+
+  rejectMemory(id: string): Observable<{ item: MemoryItem }> {
+    return this.http.post<{ item: MemoryItem }>(`${this.baseUrl}/memory/${id}/reject`, {});
+  }
+
+  editMemory(id: string, patch: { content?: string; technology?: string[]; taskType?: string }): Observable<{ item: MemoryItem }> {
+    return this.http.patch<{ item: MemoryItem }>(`${this.baseUrl}/memory/${id}`, patch);
+  }
+
   getSpecialists(): Observable<{ specialists: Specialist[] }> {
     return this.http.get<{ specialists: Specialist[] }>(`${this.baseUrl}/specialists`);
   }
@@ -112,6 +141,8 @@ export class TaskService {
         "AGENT_SELECTED",
         "WORKSPACE_PREPARED",
         "WORKSPACE_PREPARATION_FAILED",
+        "MEMORY_RETRIEVED",
+        "CANDIDATE_LESSONS_GENERATED",
         "AGENT_ANALYSIS_STARTED",
         "AGENT_ANALYSIS_COMPLETED",
         "RECONCILIATION_STARTED",

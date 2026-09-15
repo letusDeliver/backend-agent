@@ -1,0 +1,88 @@
+<h1 class="page-title">Engineering Memory</h1>
+<p class="page-subtitle">Lessons the platform has learned from completed tasks — nothing here influences a future task until a developer approves it.</p>
+
+@if (loading()) {
+  <div class="empty-state">Loading memory…</div>
+} @else {
+  <div class="stat-row">
+    <div class="stat-card">
+      <span class="stat-value">{{ validated().length }}</span>
+      <span class="stat-label">Validated Memory</span>
+    </div>
+    <div class="stat-card">
+      <span class="stat-value">{{ candidates().length }}</span>
+      <span class="stat-label">Candidate Lessons</span>
+    </div>
+    <div class="stat-card">
+      <span class="stat-value">{{ rejected().length }}</span>
+      <span class="stat-label">Rejected</span>
+    </div>
+  </div>
+
+  <h2 class="section-heading">Candidate Lessons — awaiting your review</h2>
+  @if (candidates().length === 0) {
+    <div class="empty-state">No candidate lessons waiting for review.</div>
+  }
+  @for (item of candidates(); track item.id) {
+    <div class="card memory-card">
+      @if (editingId() === item.id) {
+        <textarea class="edit-box" rows="3" [value]="editDraft()" (input)="editDraft.set($any($event.target).value)"></textarea>
+        <div class="memory-actions">
+          <button class="btn btn-primary" [disabled]="busyId() === item.id" (click)="saveEdit(item)">Save</button>
+          <button class="btn" (click)="cancelEdit()">Cancel</button>
+        </div>
+      } @else {
+        <p class="memory-content">{{ item.content }}</p>
+        <div class="memory-meta">
+          <span class="badge badge-blue">{{ taskTypeLabel(item.taskType) }}</span>
+          @for (t of item.technology; track t) {
+            <span class="badge badge-neutral">{{ t }}</span>
+          }
+          <span class="badge badge-neutral">{{ (item.confidence * 100) | number: '1.0-0' }}% confidence</span>
+        </div>
+        <p class="memory-provenance">
+          Source: <a [routerLink]="['/tasks', item.provenance.taskId]" class="mono">{{ item.provenance.taskId }}</a>
+          @if (item.provenance.agent) { &middot; {{ taskTypeLabel(item.provenance.agent) }} }
+        </p>
+        <div class="memory-actions">
+          <button class="btn btn-primary" [disabled]="busyId() === item.id" (click)="approve(item)">Approve</button>
+          <button class="btn" [disabled]="busyId() === item.id" (click)="startEdit(item)">Edit</button>
+          <button class="btn btn-danger" [disabled]="busyId() === item.id" (click)="reject(item)">Reject</button>
+        </div>
+      }
+    </div>
+  }
+
+  <h2 class="section-heading">Validated Memory</h2>
+  @if (validated().length === 0) {
+    <div class="empty-state">No validated memory yet — approve a candidate lesson above to start building it.</div>
+  }
+  @for (item of validated(); track item.id) {
+    <div class="card memory-card">
+      <p class="memory-content">{{ item.content }}</p>
+      <div class="memory-meta">
+        <span class="badge badge-green">Validated</span>
+        <span class="badge badge-blue">{{ taskTypeLabel(item.taskType) }}</span>
+        @for (t of item.technology; track t) {
+          <span class="badge badge-neutral">{{ t }}</span>
+        }
+        <span class="badge" [ngClass]="item.scope === 'global' ? 'badge-purple' : 'badge-neutral'">{{ item.scope === 'global' ? 'Global' : 'Project' }}</span>
+      </div>
+      <p class="memory-provenance">
+        Source: <a [routerLink]="['/tasks', item.provenance.taskId]" class="mono">{{ item.provenance.taskId }}</a>
+        &middot; Approved by {{ item.provenance.approvedBy ?? 'developer' }}
+        @if (item.provenance.humanEdited) { &middot; edited by a human }
+      </p>
+    </div>
+  }
+
+  @if (rejected().length) {
+    <h2 class="section-heading">Rejected</h2>
+    @for (item of rejected(); track item.id) {
+      <div class="card memory-card rejected">
+        <p class="memory-content">{{ item.content }}</p>
+        <span class="badge badge-red">Rejected</span>
+      </div>
+    }
+  }
+}

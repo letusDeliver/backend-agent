@@ -14,5 +14,9 @@ export const routes: Routes = [
     path: 'tasks/:id',
     loadComponent: () => import('./pages/task-detail/task-detail.component').then((m) => m.TaskDetailComponent),
   },
+  {
+    path: 'memory',
+    loadComponent: () => import('./pages/memory/memory.component').then((m) => m.MemoryComponent),
+  },
   { path: '**', redirectTo: 'dashboard' },
 ];

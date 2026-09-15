@@ -24,17 +24,6 @@
   flex-wrap: wrap;
 }
 
-.btn-danger {
-  background: var(--red-soft);
-  border-color: var(--red-soft);
-  color: var(--red);
-}
-
-.btn-danger:hover:not(:disabled) {
-  background: var(--red);
-  color: var(--accent-contrast);
-}
-
 .workspace-panel {
   margin-bottom: 16px;
 }
