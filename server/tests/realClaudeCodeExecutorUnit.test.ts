@@ -82,6 +82,7 @@ describe("RealClaudeCodeExecutor — process invocation", () => {
       detectedStack: stack,
       specialistContract: "contract",
       question: "how?",
+      memoryContext: [],
     });
 
     await Promise.resolve();
@@ -144,6 +145,7 @@ describe("RealClaudeCodeExecutor — process invocation", () => {
       detectedStack: stack,
       specialistContract: "contract",
       question: "how?",
+      memoryContext: [],
     });
 
     expect(spawnMock).not.toHaveBeenCalled();
@@ -163,6 +165,7 @@ describe("RealClaudeCodeExecutor — process invocation", () => {
       detectedStack: stack,
       specialistContract: "c",
       question: "q",
+      memoryContext: [],
     });
     void executor.analyze({
       agent: "node-backend",
@@ -170,6 +173,7 @@ describe("RealClaudeCodeExecutor — process invocation", () => {
       detectedStack: stack,
       specialistContract: "c",
       question: "q",
+      memoryContext: [],
     });
     await Promise.resolve();
 
