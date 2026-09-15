@@ -41,6 +41,10 @@ export class TaskService {
     return this.http.post<{ task: Task }>(`${this.baseUrl}/tasks/${id}/start`, {});
   }
 
+  cancelTask(id: string): Observable<{ task: Task }> {
+    return this.http.post<{ task: Task }>(`${this.baseUrl}/tasks/${id}/cancel`, {});
+  }
+
   listTasks(): Observable<{ tasks: Task[] }> {
     return this.http.get<{ tasks: Task[] }>(`${this.baseUrl}/tasks`);
   }
@@ -106,6 +110,8 @@ export class TaskService {
         "REPOSITORY_INSPECTION_STARTED",
         "REPOSITORY_INSPECTION_COMPLETED",
         "AGENT_SELECTED",
+        "WORKSPACE_PREPARED",
+        "WORKSPACE_PREPARATION_FAILED",
         "AGENT_ANALYSIS_STARTED",
         "AGENT_ANALYSIS_COMPLETED",
         "RECONCILIATION_STARTED",
@@ -119,6 +125,7 @@ export class TaskService {
         "TASK_COMPLETED",
         "TASK_FAILED",
         "TASK_BLOCKED",
+        "TASK_CANCELLED",
       ];
       for (const type of allEventTypes) {
         source.addEventListener(type, handler as EventListener);

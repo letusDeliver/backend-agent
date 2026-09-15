@@ -13,7 +13,8 @@ export type TaskStatus =
   | "reviewing"
   | "completed"
   | "failed"
-  | "blocked";
+  | "blocked"
+  | "cancelled";
 
 export type AgentType = "python-backend" | "node-backend" | "database";
 export type ExecutionMode = "real" | "mock";
@@ -27,6 +28,19 @@ export interface DetectedStack {
   lintCommand: string | null;
   typecheckCommand: string | null;
   evidence: string[];
+}
+
+/**
+ * The isolated git worktree real execution runs against, for a given task.
+ * Never populated in mock mode.
+ */
+export interface RealExecutionWorkspace {
+  workspacePath: string;
+  branch: string;
+  baseRevision: string;
+  status: "ready" | "failed";
+  createdAt: string;
+  error?: string;
 }
 
 export interface Task {
@@ -43,6 +57,7 @@ export interface Task {
   currentStage: string;
   executionMode: ExecutionMode;
   reviewRetryCount: number;
+  executionWorkspace?: RealExecutionWorkspace;
   createdAt: string;
   updatedAt: string;
   error?: string;
@@ -62,6 +77,8 @@ export type EventType =
   | "REPOSITORY_INSPECTION_STARTED"
   | "REPOSITORY_INSPECTION_COMPLETED"
   | "AGENT_SELECTED"
+  | "WORKSPACE_PREPARED"
+  | "WORKSPACE_PREPARATION_FAILED"
   | "AGENT_ANALYSIS_STARTED"
   | "AGENT_ANALYSIS_COMPLETED"
   | "RECONCILIATION_STARTED"
@@ -74,7 +91,8 @@ export type EventType =
   | "REVIEW_BLOCKING_ISSUE_FOUND"
   | "TASK_COMPLETED"
   | "TASK_FAILED"
-  | "TASK_BLOCKED";
+  | "TASK_BLOCKED"
+  | "TASK_CANCELLED";
 
 export interface TaskEvent {
   id: string;
@@ -148,6 +166,20 @@ export interface TestRunResult {
   evidenceRef: string;
 }
 
+export interface ExecutionDiffFile {
+  path: string;
+  additions: number;
+  deletions: number;
+}
+
+/** Ground-truth `git diff` evidence for a real-mode implementation pass. */
+export interface ExecutionDiff {
+  baseRevision: string;
+  branch: string;
+  files: ExecutionDiffFile[];
+  summary: string;
+}
+
 export interface ExecutionReport {
   taskId: string;
   executionMode: ExecutionMode;
@@ -156,6 +188,8 @@ export interface ExecutionReport {
   tests: TestRunResult[];
   commandsExecuted: string[];
   notes: string[];
+  diff?: ExecutionDiff;
+  durationMs?: number;
   createdAt: string;
 }
 

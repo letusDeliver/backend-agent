@@ -6,9 +6,16 @@
       <p class="eyebrow">TASK</p>
       <h1 class="page-title">{{ task.title }}</h1>
     </div>
-    <span class="badge status-badge" [ngClass]="'badge-' + (task.status === 'completed' ? 'green' : task.status === 'failed' ? 'red' : task.status === 'blocked' ? 'amber' : 'blue')">
-      {{ task.status }}
-    </span>
+    <div class="task-header-actions">
+      <span class="badge status-badge" [ngClass]="'badge-' + (task.status === 'completed' ? 'green' : task.status === 'failed' ? 'red' : task.status === 'blocked' ? 'amber' : task.status === 'cancelled' ? 'neutral' : 'blue')">
+        {{ task.status }}
+      </span>
+      @if (!isTerminal()) {
+        <button class="btn btn-danger" [disabled]="cancelling()" (click)="cancelTask()">
+          {{ cancelling() ? 'Cancelling…' : 'Cancel Execution' }}
+        </button>
+      }
+    </div>
   </div>
 
   <div class="mode-banner" [ngClass]="task.executionMode === 'real' ? 'mode-real' : 'mode-mock'">
@@ -17,6 +24,21 @@
       {{ task.executionMode === 'real' ? '— produced by a live Claude Code CLI session against the target repository.' : '— synthetic output for demonstration. Set CLAUDE_EXECUTION_MODE=real to execute for real.' }}
     </span>
   </div>
+
+  @if (task.executionMode === 'real' && task.executionWorkspace; as workspace) {
+    <div class="card workspace-panel">
+      <div class="kv-row"><span class="kv-key">Repository</span><span class="kv-value mono">{{ task.repository }}</span></div>
+      @if (workspace.status === 'ready') {
+        <div class="kv-row"><span class="kv-key">Isolation</span><span class="kv-value">Isolated git worktree — your working tree is protected</span></div>
+        <div class="kv-row"><span class="kv-key">Base revision</span><span class="kv-value mono">{{ workspace.baseRevision.slice(0, 12) }}</span></div>
+        <div class="kv-row"><span class="kv-key">Task branch</span><span class="kv-value mono">{{ workspace.branch }}</span></div>
+        <p class="hint">Changes are never merged automatically — review and merge this branch with your own git tooling when you're ready.</p>
+      } @else {
+        <div class="kv-row"><span class="kv-key">Isolation</span><span class="badge badge-red">Workspace preparation failed</span></div>
+        <p class="hint error-text">{{ workspace.error }}</p>
+      }
+    </div>
+  }
 
   @if (task.error) {
     <div class="error-banner">{{ task.error }}</div>
@@ -167,6 +189,12 @@
           <span class="kv-key">Status</span>
           <span class="badge" [ngClass]="executionReport.status === 'completed' ? 'badge-green' : 'badge-red'">{{ executionReport.status }}</span>
         </div>
+        @if (executionReport.durationMs !== undefined) {
+          <div class="kv-row"><span class="kv-key">Duration</span><span class="kv-value">{{ (executionReport.durationMs / 1000) | number: '1.1-1' }}s</span></div>
+        }
+        @if (executionReport.diff; as diff) {
+          <div class="kv-row"><span class="kv-key">Diff</span><span class="kv-value">{{ diff.summary }}</span></div>
+        }
         @if (executionReport.notes.length) {
           <ul class="note-list">
             @for (n of executionReport.notes; track n) {

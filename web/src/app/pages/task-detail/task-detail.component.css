@@ -17,6 +17,38 @@
   margin-top: 4px;
 }
 
+.task-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.btn-danger {
+  background: var(--red-soft);
+  border-color: var(--red-soft);
+  color: var(--red);
+}
+
+.btn-danger:hover:not(:disabled) {
+  background: var(--red);
+  color: var(--accent-contrast);
+}
+
+.workspace-panel {
+  margin-bottom: 16px;
+}
+
+.workspace-panel .hint {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  margin: 10px 0 0;
+}
+
+.workspace-panel .hint.error-text {
+  color: var(--red);
+}
+
 .mode-banner {
   display: flex;
   flex-wrap: wrap;

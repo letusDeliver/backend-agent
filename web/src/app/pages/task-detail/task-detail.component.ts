@@ -37,6 +37,8 @@ const STAGE_SEQUENCE: StageDef[] = [
 
 const ALL_AGENTS: AgentType[] = ['python-backend', 'node-backend', 'database'];
 
+const TERMINAL_STATUSES = new Set(['completed', 'failed', 'blocked', 'cancelled']);
+
 @Component({
     selector: 'app-task-detail',
     imports: [CommonModule, RouterLink],
@@ -60,6 +62,12 @@ export class TaskDetailComponent implements OnInit, OnDestroy {
   readonly loading = signal(true);
   readonly notFound = signal(false);
   readonly showActivityLog = signal(false);
+  readonly cancelling = signal(false);
+
+  readonly isTerminal = computed(() => {
+    const task = this.task();
+    return !task || TERMINAL_STATUSES.has(task.status);
+  });
 
   readonly blockingFindingsCount = computed(
     () => this.reviews().flatMap((r) => r.findings.filter((f) => f.severity === 'blocking')).length
@@ -175,5 +183,17 @@ export class TaskDetailComponent implements OnInit, OnDestroy {
 
   toggleActivityLog(): void {
     this.showActivityLog.update((v) => !v);
+  }
+
+  cancelTask(): void {
+    if (this.cancelling() || this.isTerminal()) return;
+    this.cancelling.set(true);
+    this.taskService.cancelTask(this.taskId).subscribe({
+      next: ({ task }) => {
+        this.task.set(task);
+        this.cancelling.set(false);
+      },
+      error: () => this.cancelling.set(false),
+    });
   }
 }
