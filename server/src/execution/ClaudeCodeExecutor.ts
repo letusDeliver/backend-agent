@@ -51,4 +51,10 @@ export interface ClaudeCodeExecutor {
   implement(params: ImplementParams): Promise<ExecutionReport>;
   runTests(params: RunTestsParams): Promise<TestRunResult[]>;
   review(params: ReviewParams): Promise<ReviewReport>;
+  /**
+   * Best-effort termination of any in-flight work for a task (Phase 28 —
+   * cancellation). Mock execution has nothing to cancel (every call is
+   * synchronous/instant); real execution kills the tracked child process(es).
+   */
+  cancel(taskId: string): void;
 }

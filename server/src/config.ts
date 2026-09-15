@@ -5,6 +5,9 @@ const repoRoot = path.resolve(process.cwd(), "..");
 
 export const config = {
   port: Number(process.env.PORT ?? 4400),
+  // The platform's own source root — used to refuse ever pointing real
+  // execution at (or an ancestor of) its own repository.
+  repoRoot,
   dataDir: process.env.DATA_DIR ?? path.join(repoRoot, "data"),
   tasksDir: process.env.TASKS_DIR ?? path.join(repoRoot, "tasks"),
   agentsDir: process.env.AGENTS_DIR ?? path.join(repoRoot, "claude-code-platform-architecture-v0.1", "agents"),

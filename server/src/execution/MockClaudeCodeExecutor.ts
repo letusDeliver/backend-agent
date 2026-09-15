@@ -110,4 +110,8 @@ export class MockClaudeCodeExecutor implements ClaudeCodeExecutor {
       attempt,
     };
   }
+
+  cancel(_taskId: string): void {
+    // Every mock call resolves synchronously/instantly — nothing to cancel.
+  }
 }

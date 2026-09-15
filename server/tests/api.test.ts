@@ -121,6 +121,38 @@ describe("Task lifecycle", () => {
   });
 });
 
+describe("POST /api/tasks/:id/cancel", () => {
+  it("cancels a task that has not been started yet", async () => {
+    const createRes = await request(app)
+      .post("/api/tasks")
+      .send({ title: "Cancel me", requirement: "Add a GET /widgets endpoint.", repository: repoDir });
+    const taskId = createRes.body.task.id;
+
+    const cancelRes = await request(app).post(`/api/tasks/${taskId}/cancel`);
+    expect(cancelRes.status).toBe(200);
+    expect(cancelRes.body.task.status).toBe("cancelled");
+
+    const getRes = await request(app).get(`/api/tasks/${taskId}`);
+    expect(getRes.body.task.status).toBe("cancelled");
+  });
+
+  it("rejects cancelling an already-cancelled task", async () => {
+    const createRes = await request(app)
+      .post("/api/tasks")
+      .send({ title: "Cancel twice", requirement: "Add a GET /widgets endpoint.", repository: repoDir });
+    const taskId = createRes.body.task.id;
+
+    await request(app).post(`/api/tasks/${taskId}/cancel`);
+    const secondRes = await request(app).post(`/api/tasks/${taskId}/cancel`);
+    expect(secondRes.status).toBe(409);
+  });
+
+  it("returns 404 for an unknown task", async () => {
+    const res = await request(app).post("/api/tasks/does-not-exist/cancel");
+    expect(res.status).toBe(404);
+  });
+});
+
 describe("GET /api/stats", () => {
   it("reflects the completed task", async () => {
     const res = await request(app).get("/api/stats");

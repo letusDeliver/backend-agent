@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { Router } from "express";
-import { artifactStore, eventBus, orchestrator, taskStore } from "../container.js";
+import { artifactStore, eventBus, executor, orchestrator, taskStore } from "../container.js";
 import { config } from "../config.js";
 import { resolveRepositoryPath } from "../utils/paths.js";
 import { ApiError } from "../middleware/errorHandler.js";
@@ -96,6 +96,34 @@ tasksRouter.post("/tasks/:id/start", async (req, res, next) => {
     // TaskOrchestrator.run and surfaced as a TASK_FAILED event + status.
     void orchestrator.run(task.id);
     res.status(202).json({ task: { ...task, status: "inspecting" } });
+  } catch (err) {
+    next(err);
+  }
+});
+
+const TERMINAL_STATUSES = new Set<Task["status"]>(["completed", "failed", "blocked", "cancelled"]);
+
+tasksRouter.post("/tasks/:id/cancel", async (req, res, next) => {
+  try {
+    const task = await taskStore.get(req.params.id);
+    if (!task) throw new ApiError(404, "Task not found.");
+    if (TERMINAL_STATUSES.has(task.status)) {
+      throw new ApiError(409, `Task cannot be cancelled from status "${task.status}".`);
+    }
+
+    task.status = "cancelled";
+    task.currentStage = "cancelled";
+    task.updatedAt = new Date().toISOString();
+    await taskStore.update(task);
+    await artifactStore.writeTask(task);
+
+    // Best-effort: kill any in-flight Claude Code process for this task.
+    // Orchestrator.run() also checks persisted status between phases so it
+    // stops making further progress even if nothing was actively running.
+    executor.cancel(task.id);
+
+    await eventBus.publish(task.id, "TASK_CANCELLED", "Task cancelled by developer request.");
+    res.json({ task });
   } catch (err) {
     next(err);
   }

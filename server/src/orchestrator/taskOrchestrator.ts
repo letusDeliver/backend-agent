@@ -3,6 +3,7 @@ import type { TaskStore } from "../store/taskStore.js";
 import { ArtifactStore } from "../artifacts/artifactStore.js";
 import { TaskEventBus } from "../events/eventBus.js";
 import type { ClaudeCodeExecutor } from "../execution/ClaudeCodeExecutor.js";
+import { GitWorktreeManager } from "../execution/gitWorktree.js";
 import { loadSpecialistContract, AGENT_LABELS } from "../agents/specialistContracts.js";
 import { inspectRepository } from "./repositoryInspector.js";
 import { routeTask } from "./routingEngine.js";
@@ -20,16 +21,18 @@ import type {
 
 /**
  * Coordinates the full pipeline described in orchestrator/ORCHESTRATOR.md:
- * inspect -> route -> analyze -> reconcile -> plan -> implement -> review ->
- * handoff. Owns workflow-state transitions (ORCHESTRATOR.md responsibility
- * #1-10); specialists and the executor contribute bounded artifacts.
+ * inspect -> route -> [prepare isolated workspace, real mode only] ->
+ * analyze -> reconcile -> plan -> implement -> review -> handoff. Owns
+ * workflow-state transitions (ORCHESTRATOR.md responsibility #1-10);
+ * specialists and the executor contribute bounded artifacts.
  */
 export class TaskOrchestrator {
   constructor(
     private readonly taskStore: TaskStore,
     private readonly artifacts: ArtifactStore,
     private readonly events: TaskEventBus,
-    private readonly executor: ClaudeCodeExecutor
+    private readonly executor: ClaudeCodeExecutor,
+    private readonly worktrees: GitWorktreeManager
   ) {}
 
   async run(taskId: string): Promise<void> {
@@ -37,6 +40,8 @@ export class TaskOrchestrator {
     if (!task) throw new Error(`Task ${taskId} not found`);
 
     try {
+      if (await this.isCancelled(taskId)) return;
+
       task = await this.inspect(task);
       const routing = routeTask(task, task.detectedStack!);
 
@@ -55,7 +60,25 @@ export class TaskOrchestrator {
       task.selectedAgents = routing.agents;
       task = await this.persist(task);
 
+      if (await this.isCancelled(taskId)) return;
+
+      if (this.executor.mode === "real") {
+        task = await this.prepareRealExecutionWorkspace(task);
+        if (task.executionWorkspace?.status === "failed") {
+          await this.block(
+            task,
+            `Real execution requires an isolated workspace, but preparation failed: ${task.executionWorkspace.error}`
+          );
+          return;
+        }
+      }
+
+      if (await this.isCancelled(taskId)) return;
+
       const reports = await this.analyze(task, routing.agents);
+
+      if (await this.isCancelled(taskId)) return;
+
       task = await this.setStage(task, "reconciling", "reconciling");
       await this.events.publish(task.id, "RECONCILIATION_STARTED", "Reconciling specialist recommendations.");
       const reconciliation = reconcile(task.id, reports, routing);
@@ -75,6 +98,8 @@ export class TaskOrchestrator {
         return;
       }
 
+      if (await this.isCancelled(taskId)) return;
+
       task = await this.setStage(task, "planning", "planning");
       const plan = buildImplementationPlan(task, task.detectedStack!, reconciliation, routing.agents);
       await this.artifacts.writeImplementationPlan(plan);
@@ -82,8 +107,12 @@ export class TaskOrchestrator {
         files: plan.files,
       });
 
+      if (await this.isCancelled(taskId)) return;
+
       task = await this.setStage(task, "implementing", "implementing");
       let executionReport = await this.implement(task, plan);
+
+      if (await this.isCancelled(taskId)) return;
 
       const { finalReviews, blocked } = await this.reviewLoop(task, plan, routing.agents, executionReport);
       if (blocked) {
@@ -91,18 +120,31 @@ export class TaskOrchestrator {
         return;
       }
 
+      if (await this.isCancelled(taskId)) return;
+
       task = await this.handoff(task, plan, executionReport, finalReviews, routing.agents);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       const failed = await this.taskStore.get(taskId);
-      if (failed) {
+      if (failed && failed.status !== "cancelled") {
         failed.status = "failed";
         failed.error = message;
         failed.updatedAt = new Date().toISOString();
         await this.persist(failed);
+        await this.events.publish(taskId, "TASK_FAILED", `Task failed: ${message}`);
       }
-      await this.events.publish(taskId, "TASK_FAILED", `Task failed: ${message}`);
     }
+  }
+
+  /**
+   * Reads the persisted status directly rather than trusting the in-memory
+   * `task` variable — cancellation is requested via a concurrent HTTP call
+   * (`POST /tasks/:id/cancel`) that writes straight to the store, so only a
+   * fresh read can see it.
+   */
+  private async isCancelled(taskId: string): Promise<boolean> {
+    const current = await this.taskStore.get(taskId);
+    return current?.status === "cancelled";
   }
 
   private async persist(task: Task): Promise<Task> {
@@ -136,6 +178,44 @@ export class TaskOrchestrator {
       detectedStack,
     });
     return task;
+  }
+
+  /**
+   * Real-mode-only step: creates an isolated git worktree/branch for this
+   * task and records it on `task.executionWorkspace` before any specialist
+   * or implementation call runs. Mock mode never calls this.
+   */
+  private async prepareRealExecutionWorkspace(task: Task): Promise<Task> {
+    try {
+      const info = await this.worktrees.prepare(task.repository, task.id, config.tasksDir);
+      task.executionWorkspace = {
+        workspacePath: info.workspacePath,
+        branch: info.branch,
+        baseRevision: info.baseRevision,
+        status: "ready",
+        createdAt: new Date().toISOString(),
+      };
+      task = await this.persist(task);
+      await this.events.publish(task.id, "WORKSPACE_PREPARED", `Isolated workspace ready on branch ${info.branch}.`, {
+        branch: info.branch,
+        baseRevision: info.baseRevision,
+        workspacePath: info.workspacePath,
+      });
+      return task;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      task.executionWorkspace = {
+        workspacePath: "",
+        branch: "",
+        baseRevision: "",
+        status: "failed",
+        createdAt: new Date().toISOString(),
+        error: message,
+      };
+      task = await this.persist(task);
+      await this.events.publish(task.id, "WORKSPACE_PREPARATION_FAILED", `Could not prepare an isolated workspace: ${message}`);
+      return task;
+    }
   }
 
   private async analyze(task: Task, agents: AgentType[]): Promise<SpecialistReport[]> {
@@ -174,6 +254,7 @@ export class TaskOrchestrator {
       status: report.status,
       changedFiles: report.changedFiles,
       tests,
+      diff: report.diff,
     });
     return report;
   }
@@ -187,6 +268,8 @@ export class TaskOrchestrator {
     task = await this.setStage(task, "reviewing", "reviewing");
 
     for (let attempt = 1; attempt <= config.maxReviewRetries + 1; attempt += 1) {
+      if (await this.isCancelled(task.id)) return { finalReviews: [], blocked: false };
+
       await this.events.publish(task.id, "REVIEW_STARTED", `Review attempt ${attempt} started.`, { attempt });
 
       const reviews = await Promise.all(
@@ -303,9 +386,18 @@ function renderHandoffMarkdown(
   lines.push(`**Task ID:** ${task.id}`);
   lines.push(`**Execution mode:** ${task.executionMode === "real" ? "REAL EXECUTION" : "MOCK / SIMULATED EXECUTION"}`);
   lines.push(`**Status:** ${handoff.status}`, "");
+  if (task.executionWorkspace?.status === "ready") {
+    lines.push(
+      `**Isolated branch:** \`${task.executionWorkspace.branch}\` (base \`${task.executionWorkspace.baseRevision.slice(0, 12)}\`) — not merged automatically; review and merge with your own git tooling.`,
+      ""
+    );
+  }
   lines.push("## Summary", "", handoff.summary, "");
   lines.push("## Agents Used", "", ...handoff.agentsUsed.map((a) => `- ${AGENT_LABELS[a]}`), "");
   lines.push("## Files Changed", "", ...(executionReport.changedFiles.length ? executionReport.changedFiles.map((f) => `- ${f}`) : ["(none)"]), "");
+  if (executionReport.diff) {
+    lines.push("## Diff", "", executionReport.diff.summary, "");
+  }
   lines.push("## Tests", "");
   for (const t of executionReport.tests) {
     lines.push(`- \`${t.command}\`: ${t.status} (${t.passed} passed, ${t.failed} failed)`);

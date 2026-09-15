@@ -1,7 +1,8 @@
-import { spawn } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import { exec as execCb } from "node:child_process";
 import { promisify } from "node:util";
 import { config } from "../config.js";
+import { GitWorktreeManager } from "./gitWorktree.js";
 import type {
   ClaudeCodeExecutor,
   AnalyzeParams,
@@ -9,7 +10,7 @@ import type {
   ReviewParams,
   RunTestsParams,
 } from "./ClaudeCodeExecutor.js";
-import type { ExecutionReport, ReviewReport, SpecialistReport, TestRunResult } from "../types/index.js";
+import type { ExecutionReport, ReviewReport, SpecialistReport, Task, TestRunResult } from "../types/index.js";
 
 const exec = promisify(execCb);
 
@@ -18,38 +19,110 @@ class ClaudeCliError extends Error {}
 /**
  * Shells out to the local `claude` CLI in non-interactive print mode
  * (`claude -p ... --output-format json`). This is real Claude Code
- * execution: it can read the target repository and — for implement() —
- * actually modify files on disk. It is only ever instantiated when
- * CLAUDE_EXECUTION_MODE=real is explicitly set (see config.ts); the server
- * never falls into this path by default.
+ * execution: it reads and — for implement() — writes files. It is only ever
+ * instantiated when CLAUDE_EXECUTION_MODE=real is explicitly set.
+ *
+ * Phase 28: every call runs against the task's isolated git worktree
+ * (`task.executionWorkspace.workspacePath`), never against the developer's
+ * live repository path directly — the orchestrator is responsible for
+ * preparing that workspace before invoking any method here, and this class
+ * refuses to run (rather than silently falling back to `task.repository`)
+ * if one isn't present.
  */
 export class RealClaudeCodeExecutor implements ClaudeCodeExecutor {
   readonly mode = "real" as const;
 
-  private async runClaudeCli(prompt: string, cwd: string, permissionMode: string): Promise<string> {
+  private readonly activeProcesses = new Map<string, Set<ChildProcess>>();
+  private readonly cancelRequested = new Set<string>();
+
+  constructor(private readonly worktrees: GitWorktreeManager = new GitWorktreeManager()) {}
+
+  cancel(taskId: string): void {
+    this.cancelRequested.add(taskId);
+    const procs = this.activeProcesses.get(taskId);
+    if (!procs) return;
+    for (const child of procs) {
+      child.kill("SIGTERM");
+      setTimeout(() => {
+        if (child.exitCode === null && child.signalCode === null) {
+          try {
+            child.kill("SIGKILL");
+          } catch {
+            // already exited between the check and the kill
+          }
+        }
+      }, 5000);
+    }
+  }
+
+  private workspaceOf(task: Task): string {
+    const ws = task.executionWorkspace;
+    if (!ws || ws.status !== "ready") {
+      throw new ClaudeCliError(
+        "Real execution requires a prepared isolated workspace, but none is ready for this task. " +
+          "The orchestrator must prepare a workspace before invoking real execution — this indicates an internal ordering bug, not a transient failure."
+      );
+    }
+    return ws.workspacePath;
+  }
+
+  private track(taskId: string, child: ChildProcess): void {
+    let set = this.activeProcesses.get(taskId);
+    if (!set) {
+      set = new Set();
+      this.activeProcesses.set(taskId, set);
+    }
+    set.add(child);
+  }
+
+  private untrack(taskId: string, child: ChildProcess): void {
+    this.activeProcesses.get(taskId)?.delete(child);
+  }
+
+  private async runClaudeCli(
+    taskId: string,
+    prompt: string,
+    cwd: string,
+    permissionMode: string
+  ): Promise<{ stdout: string; durationMs: number }> {
     return new Promise((resolve, reject) => {
-      const args = [
-        "-p",
-        prompt,
-        "--output-format",
-        "json",
-        "--permission-mode",
-        permissionMode,
-        "--add-dir",
-        cwd,
-      ];
+      const args = ["-p", prompt, "--output-format", "json", "--permission-mode", permissionMode, "--add-dir", cwd];
+      const startedAt = Date.now();
       const child = spawn(config.claudeCliPath, args, { cwd, timeout: config.claudeTimeoutMs });
+      this.track(taskId, child);
+
       let stdout = "";
       let stderr = "";
       child.stdout.on("data", (chunk) => (stdout += chunk.toString()));
       child.stderr.on("data", (chunk) => (stderr += chunk.toString()));
-      child.on("error", (err) => reject(new ClaudeCliError(`Failed to launch claude CLI: ${err.message}`)));
-      child.on("close", (code) => {
-        if (code !== 0) {
-          reject(new ClaudeCliError(`claude CLI exited with code ${code}: ${stderr.slice(0, 2000)}`));
+
+      child.on("error", (err) => {
+        this.untrack(taskId, child);
+        reject(new ClaudeCliError(`Failed to launch claude CLI: ${err.message}`));
+      });
+
+      child.on("close", (code, signal) => {
+        this.untrack(taskId, child);
+        const durationMs = Date.now() - startedAt;
+
+        if (code === 0) {
+          resolve({ stdout, durationMs });
           return;
         }
-        resolve(stdout);
+
+        // A non-zero exit paired with SIGTERM/SIGKILL is either an explicit
+        // cancellation (we sent the signal ourselves, tracked below) or
+        // Node's own `timeout` option firing — never a plain CLI failure.
+        if (signal === "SIGTERM" || signal === "SIGKILL") {
+          if (this.cancelRequested.has(taskId)) {
+            reject(new ClaudeCliError(`claude CLI cancelled by developer request after ${durationMs}ms.`));
+          } else {
+            reject(new ClaudeCliError(`claude CLI timed out after ${config.claudeTimeoutMs}ms and was terminated.`));
+          }
+          return;
+        }
+
+        reject(new ClaudeCliError(`claude CLI exited with code ${code}: ${stderr.slice(0, 2000)}`));
       });
     });
   }
@@ -94,7 +167,8 @@ export class RealClaudeCodeExecutor implements ClaudeCodeExecutor {
     ].join("\n");
 
     try {
-      const stdout = await this.runClaudeCli(prompt, task.repository, "plan");
+      const cwd = this.workspaceOf(task);
+      const { stdout } = await this.runClaudeCli(task.id, prompt, cwd, "plan");
       const resultText = this.parseResultText(stdout);
       const payload = this.extractJsonPayload<Pick<SpecialistReport, "recommendation" | "findings" | "risks" | "assumptions" | "confidence">>(resultText);
       return {
@@ -140,17 +214,32 @@ export class RealClaudeCodeExecutor implements ClaudeCodeExecutor {
     ].join("\n");
 
     try {
-      const stdout = await this.runClaudeCli(prompt, task.repository, "acceptEdits");
+      const cwd = this.workspaceOf(task);
+      const ws = task.executionWorkspace!;
+      const { stdout, durationMs } = await this.runClaudeCli(task.id, prompt, cwd, "acceptEdits");
       const resultText = this.parseResultText(stdout);
       const payload = this.extractJsonPayload<{ changedFiles: string[]; commandsExecuted: string[]; notes: string[] }>(resultText);
+
+      // Ground truth, not Claude's self-report: commit whatever actually
+      // changed on disk onto the task branch, then diff against the base
+      // revision. This is what changedFiles/diff are built from below.
+      const commitMessage = `Agent: ${task.title}\n\nTask ID: ${task.id}\nGenerated by the Backend Engineering Agent Platform (real execution).`;
+      const { committed } = await this.worktrees.commitChanges(cwd, commitMessage);
+      const diff = committed ? await this.worktrees.diff(cwd, ws.baseRevision) : { files: [], summary: "No changes." };
+      const changedFiles = diff.files.map((f) => f.path);
+
       return {
         taskId: task.id,
         executionMode: "real",
         status: "completed",
-        changedFiles: payload.changedFiles,
+        changedFiles,
         tests: [],
         commandsExecuted: payload.commandsExecuted,
-        notes: payload.notes,
+        notes: committed
+          ? payload.notes
+          : [...payload.notes, "No files were actually changed on disk — nothing was committed to the task branch."],
+        diff: { baseRevision: ws.baseRevision, branch: ws.branch, files: diff.files, summary: diff.summary },
+        durationMs,
         createdAt: new Date().toISOString(),
       };
     } catch (err) {
@@ -180,8 +269,9 @@ export class RealClaudeCodeExecutor implements ClaudeCodeExecutor {
       ];
     }
     try {
+      const cwd = this.workspaceOf(task);
       const { stdout } = await exec(detectedStack.testCommand, {
-        cwd: task.repository,
+        cwd,
         timeout: config.claudeTimeoutMs,
       });
       const passedMatch = stdout.match(/(\d+)\s+passed/i);
@@ -196,14 +286,17 @@ export class RealClaudeCodeExecutor implements ClaudeCodeExecutor {
         },
       ];
     } catch (err) {
-      const execErr = err as { stdout?: string; stderr?: string };
+      const execErr = err as { stdout?: string; stderr?: string; killed?: boolean; signal?: string };
+      const timedOut = execErr.killed && execErr.signal === "SIGTERM";
       return [
         {
           command: detectedStack.testCommand,
           status: "failed",
           passed: 0,
           failed: 0,
-          evidenceRef: `${execErr.stdout ?? ""}\n${execErr.stderr ?? (err as Error).message}`.slice(-4000),
+          evidenceRef: timedOut
+            ? `Test command timed out after ${config.claudeTimeoutMs}ms and was terminated.`
+            : `${execErr.stdout ?? ""}\n${execErr.stderr ?? (err as Error).message}`.slice(-4000),
         },
       ];
     }
@@ -225,7 +318,8 @@ export class RealClaudeCodeExecutor implements ClaudeCodeExecutor {
     ].join("\n");
 
     try {
-      const stdout = await this.runClaudeCli(prompt, task.repository, "plan");
+      const cwd = this.workspaceOf(task);
+      const { stdout } = await this.runClaudeCli(task.id, prompt, cwd, "plan");
       const resultText = this.parseResultText(stdout);
       const payload = this.extractJsonPayload<{ status: "PASS" | "FAIL"; findings: ReviewReport["findings"] }>(resultText);
       return {
