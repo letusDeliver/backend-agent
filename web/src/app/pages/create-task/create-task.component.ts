@@ -1,4 +1,4 @@
-import { Component, inject } from '@angular/core';
+import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { Router } from '@angular/router';
@@ -6,11 +6,11 @@ import { map, switchMap } from 'rxjs';
 import { TaskService } from '../../services/task.service';
 
 @Component({
-  selector: 'app-create-task',
-  standalone: true,
-  imports: [CommonModule, ReactiveFormsModule],
-  templateUrl: './create-task.component.html',
-  styleUrl: './create-task.component.css',
+    selector: 'app-create-task',
+    imports: [CommonModule, ReactiveFormsModule],
+    templateUrl: './create-task.component.html',
+    styleUrl: './create-task.component.css',
+    changeDetection: ChangeDetectionStrategy.Default
 })
 export class CreateTaskComponent {
   private readonly fb = inject(FormBuilder);

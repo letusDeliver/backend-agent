@@ -5,10 +5,10 @@
 **An AI engineering control center for backend work.**
 Describe a requirement, point it at a real repository, and watch an orchestrator inspect the codebase, route the right specialists, reconcile their recommendations, implement the change, and hand you back evidence — not just a claim.
 
-[![Node.js](https://img.shields.io/badge/Node.js-20%2B-339933?logo=node.js&logoColor=white)](https://nodejs.org)
-[![TypeScript](https://img.shields.io/badge/TypeScript-5.7-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+[![Node.js](https://img.shields.io/badge/Node.js-22.22%2B-339933?logo=node.js&logoColor=white)](https://nodejs.org)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.x%20%2F%206.x-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![Express](https://img.shields.io/badge/Express-4.x-000000?logo=express&logoColor=white)](https://expressjs.com/)
-[![Angular](https://img.shields.io/badge/Angular-18-DD0031?logo=angular&logoColor=white)](https://angular.dev/)
+[![Angular](https://img.shields.io/badge/Angular-22-DD0031?logo=angular&logoColor=white)](https://angular.dev/)
 [![Tests](https://img.shields.io/badge/tests-56%20passing-33c481)](#testing)
 
 </div>
@@ -74,7 +74,7 @@ See [docs/LOCAL_DEVELOPMENT.md](docs/LOCAL_DEVELOPMENT.md) for environment varia
 
 | Layer | Choice |
 |---|---|
-| Frontend | Angular 18 (standalone components), TypeScript |
+| Frontend | Angular 22 (standalone components, zone.js), TypeScript |
 | Backend | Node.js, Express, TypeScript |
 | Storage | JSON-file task store behind a swappable `TaskStore` interface (Postgres-ready) |
 | Realtime | Server-Sent Events |

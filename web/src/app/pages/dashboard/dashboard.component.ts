@@ -1,4 +1,4 @@
-import { Component, OnInit } from '@angular/core';
+import { ChangeDetectionStrategy, Component, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { RouterLink } from '@angular/router';
 import { forkJoin } from 'rxjs';
@@ -6,11 +6,11 @@ import { TaskService, Specialist, Stats } from '../../services/task.service';
 import type { Task } from '../../models/task.model';
 
 @Component({
-  selector: 'app-dashboard',
-  standalone: true,
-  imports: [CommonModule, RouterLink],
-  templateUrl: './dashboard.component.html',
-  styleUrl: './dashboard.component.css',
+    selector: 'app-dashboard',
+    imports: [CommonModule, RouterLink],
+    templateUrl: './dashboard.component.html',
+    styleUrl: './dashboard.component.css',
+    changeDetection: ChangeDetectionStrategy.Default
 })
 export class DashboardComponent implements OnInit {
   stats: Stats | null = null;

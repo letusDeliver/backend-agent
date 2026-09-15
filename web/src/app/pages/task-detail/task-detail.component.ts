@@ -1,4 +1,4 @@
-import { Component, OnDestroy, OnInit } from '@angular/core';
+import { ChangeDetectionStrategy, Component, OnDestroy, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { Subject, takeUntil } from 'rxjs';
@@ -38,11 +38,11 @@ const STAGE_SEQUENCE: StageDef[] = [
 const ALL_AGENTS: AgentType[] = ['python-backend', 'node-backend', 'database'];
 
 @Component({
-  selector: 'app-task-detail',
-  standalone: true,
-  imports: [CommonModule, RouterLink],
-  templateUrl: './task-detail.component.html',
-  styleUrl: './task-detail.component.css',
+    selector: 'app-task-detail',
+    imports: [CommonModule, RouterLink],
+    templateUrl: './task-detail.component.html',
+    styleUrl: './task-detail.component.css',
+    changeDetection: ChangeDetectionStrategy.Default
 })
 export class TaskDetailComponent implements OnInit, OnDestroy {
   readonly allAgents = ALL_AGENTS;
