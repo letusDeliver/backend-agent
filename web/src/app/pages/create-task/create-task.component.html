@@ -1,0 +1,55 @@
+<h1 class="page-title">New Backend Task</h1>
+<p class="page-subtitle">Describe the requirement — the orchestrator inspects the repository and selects specialists for you.</p>
+
+<form class="card form" [formGroup]="form" (ngSubmit)="submit()">
+  <div class="field">
+    <label for="requirement">Requirement</label>
+    <textarea
+      id="requirement"
+      formControlName="requirement"
+      rows="6"
+      placeholder="Add an order creation API with PostgreSQL persistence. Validate the request, use a transaction and add tests."
+    ></textarea>
+    @if (form.controls.requirement.invalid && form.controls.requirement.touched) {
+      <span class="hint error-text">A requirement is required.</span>
+    }
+  </div>
+
+  <div class="field">
+    <label for="title">Title <span class="hint">(optional — derived from the requirement if left blank)</span></label>
+    <input id="title" type="text" formControlName="title" placeholder="Order creation API" />
+  </div>
+
+  <div class="field">
+    <label for="repository">Repository path</label>
+    <input id="repository" type="text" formControlName="repository" placeholder="/Users/you/projects/my-backend-service" />
+    <span class="hint">A local filesystem path the orchestrator can inspect. It is never assumed — the stack is detected from real repository evidence.</span>
+    @if (form.controls.repository.invalid && form.controls.repository.touched) {
+      <span class="hint error-text">A repository path is required.</span>
+    }
+  </div>
+
+  <div class="grid-2">
+    <div class="field">
+      <label for="preferredTechnology">Preferred technology <span class="hint">(optional)</span></label>
+      <input id="preferredTechnology" type="text" formControlName="preferredTechnology" placeholder="e.g. FastAPI" />
+    </div>
+    <div class="field">
+      <label for="preferredDatabase">Preferred database <span class="hint">(optional)</span></label>
+      <input id="preferredDatabase" type="text" formControlName="preferredDatabase" placeholder="e.g. PostgreSQL" />
+    </div>
+  </div>
+
+  <div class="field">
+    <label for="constraints">Additional constraints <span class="hint">(optional)</span></label>
+    <textarea id="constraints" formControlName="constraints" rows="3" placeholder="Must preserve the existing public API."></textarea>
+  </div>
+
+  @if (error) {
+    <div class="error-banner">{{ error }}</div>
+  }
+
+  <button type="submit" class="btn btn-primary submit-btn" [disabled]="submitting">
+    {{ submitting ? 'Starting…' : 'Start Engineering' }}
+  </button>
+</form>

@@ -1,0 +1,9 @@
+{
+  "task": "task.json",
+  "specialist": "specialist-{agent}.json",
+  "reconciliation": "reconciliation.json",
+  "implementation_plan": "implementation-plan.json",
+  "execution": "execution-report.json",
+  "review": "review-{agent}.json",
+  "handoff": "final-handoff.md"
+}

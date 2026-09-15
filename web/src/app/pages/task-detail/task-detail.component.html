@@ -1,0 +1,235 @@
+@if (loading) {
+  <div class="empty-state">Loading task…</div>
+} @else if (notFound || !task) {
+  <div class="empty-state">Task not found. <a routerLink="/dashboard">Back to dashboard</a></div>
+} @else {
+  <div class="task-header">
+    <div>
+      <p class="eyebrow">TASK</p>
+      <h1 class="page-title">{{ task.title }}</h1>
+    </div>
+    <span class="badge status-badge" [ngClass]="'badge-' + (task.status === 'completed' ? 'green' : task.status === 'failed' ? 'red' : task.status === 'blocked' ? 'amber' : 'blue')">
+      {{ task.status }}
+    </span>
+  </div>
+
+  <div class="mode-banner" [ngClass]="task.executionMode === 'real' ? 'mode-real' : 'mode-mock'">
+    {{ task.executionMode === 'real' ? 'REAL EXECUTION' : 'MOCK / SIMULATED EXECUTION' }}
+    <span class="mode-detail">
+      {{ task.executionMode === 'real' ? '— produced by a live Claude Code CLI session against the target repository.' : '— synthetic output for demonstration. Set CLAUDE_EXECUTION_MODE=real to execute for real.' }}
+    </span>
+  </div>
+
+  @if (task.error) {
+    <div class="error-banner">{{ task.error }}</div>
+  }
+
+  <!-- STAGE TIMELINE -->
+  <h2 class="section-heading">Execution Timeline</h2>
+  <div class="card timeline">
+    @for (stage of stages; track stage.key) {
+      <div class="timeline-row" [ngClass]="'state-' + stageState(stage)">
+        <span class="timeline-icon">
+          @switch (stageState(stage)) {
+            @case ('done') { ✓ }
+            @case ('active') { ● }
+            @case ('blocked') { ✕ }
+            @default { ○ }
+          }
+        </span>
+        <span class="timeline-label">{{ stage.label }}</span>
+      </div>
+    }
+  </div>
+  <button class="link-btn" (click)="toggleActivityLog()">{{ showActivityLog ? 'Hide' : 'Show' }} raw activity log ({{ events.length }})</button>
+  @if (showActivityLog) {
+    <div class="card activity-log">
+      @for (event of events; track event.id) {
+        <div class="log-row">
+          <span class="log-time">{{ event.createdAt | date: 'HH:mm:ss' }}</span>
+          <span class="log-type">{{ event.type }}</span>
+          <span class="log-message">{{ event.message }}</span>
+        </div>
+      }
+    </div>
+  }
+
+  <!-- REPOSITORY -->
+  @if (task.detectedStack) {
+    <h2 class="section-heading">Repository</h2>
+    <div class="card">
+      <div class="kv-row"><span class="kv-key">Path</span><span class="kv-value mono">{{ task.repository }}</span></div>
+      <div class="kv-row"><span class="kv-key">Language</span><span class="kv-value">{{ task.detectedStack.language }}</span></div>
+      <div class="kv-row"><span class="kv-key">Framework</span><span class="kv-value">{{ task.detectedStack.framework ?? '—' }}</span></div>
+      <div class="kv-row"><span class="kv-key">Database</span><span class="kv-value">{{ task.detectedStack.database ?? '—' }}</span></div>
+    </div>
+  }
+
+  <!-- SPECIALISTS -->
+  <h2 class="section-heading">Specialists</h2>
+  <div class="specialist-grid">
+    @for (agent of allAgents; track agent) {
+      <div class="card specialist-card" [class.inactive]="!task.selectedAgents.includes(agent)">
+        @if (task.selectedAgents.includes(agent)) {
+          <div class="specialist-title">
+            <span [ngClass]="specialistFor(agent) ? 'badge badge-green' : 'badge badge-blue'">
+              {{ specialistFor(agent) ? '✓' : '●' }}
+            </span>
+            {{ agentLabels[agent] }}
+          </div>
+          @if (specialistFor(agent); as report) {
+            <p class="specialist-status">Status: {{ report.status }} ({{ (report.confidence * 100) | number: '1.0-0' }}% confidence)</p>
+            <p class="specialist-metric">Findings: {{ report.findings.length }}</p>
+            <p class="specialist-metric">Risks: {{ report.risks.length }}</p>
+          } @else {
+            <p class="specialist-status">Status: Analyzing…</p>
+          }
+        } @else {
+          <div class="specialist-title muted">— {{ agentLabels[agent] }}</div>
+          <p class="specialist-status muted">Not required</p>
+        }
+      </div>
+    }
+  </div>
+
+  <!-- RECONCILIATION -->
+  @if (reconciliation) {
+    <h2 class="section-heading">Reconciliation</h2>
+    <div class="card">
+      <div class="kv-row">
+        <span class="kv-key">Status</span>
+        <span class="badge" [ngClass]="reconciliation.status === 'AGREED' ? 'badge-green' : reconciliation.status === 'NEEDS_USER_DECISION' ? 'badge-amber' : 'badge-red'">
+          {{ reconciliation.status }}
+        </span>
+      </div>
+      <div class="kv-row"><span class="kv-key">Confidence</span><span class="kv-value">{{ reconciliation.confidencePercent }}%</span></div>
+
+      @for (decision of reconciliation.decisions; track decision.decision) {
+        <div class="decision-block">
+          <p class="decision-title">{{ decision.decision }}</p>
+          <p class="decision-detail"><strong>Evidence:</strong> {{ decision.evidence }}</p>
+          <p class="decision-detail"><strong>Owner:</strong> {{ ownerLabel(decision.owner) }}</p>
+        </div>
+      }
+
+      @if (reconciliation.risks.length) {
+        <p class="kv-key risks-heading">Risks</p>
+        <ul class="risk-list">
+          @for (risk of reconciliation.risks; track risk.summary) {
+            <li>
+              <span class="badge" [ngClass]="risk.severity === 'high' ? 'badge-red' : risk.severity === 'medium' ? 'badge-amber' : 'badge-neutral'">{{ risk.severity }}</span>
+              {{ risk.summary }}
+            </li>
+          }
+        </ul>
+      }
+
+      @if (reconciliation.conflicts.length) {
+        <p class="kv-key risks-heading">Conflicts</p>
+        <ul class="risk-list">
+          @for (c of reconciliation.conflicts; track c) {
+            <li>{{ c }}</li>
+          }
+        </ul>
+      }
+    </div>
+  }
+
+  <!-- IMPLEMENTATION -->
+  @if (plan) {
+    <h2 class="section-heading">Implementation</h2>
+    <div class="card">
+      <p class="plan-summary">{{ plan.summary }}</p>
+
+      <p class="kv-key files-heading">Files</p>
+      <ul class="file-list">
+        @for (file of plan.files; track file.path) {
+          <li [class.changed]="isFileChanged(file.path)">
+            <span class="file-icon">{{ isFileChanged(file.path) ? '✓' : '○' }}</span>
+            <span class="mono">{{ file.path }}</span>
+            <span class="file-desc">{{ file.description }}</span>
+          </li>
+        }
+      </ul>
+
+      @if (executionReport) {
+        <p class="kv-key files-heading">Tests</p>
+        @if (executionReport.tests.length === 0) {
+          <p class="empty-state">No test evidence yet.</p>
+        }
+        @for (t of executionReport.tests; track t.command) {
+          <div class="test-row">
+            <span class="badge" [ngClass]="t.status === 'passed' ? 'badge-green' : t.status === 'failed' ? 'badge-red' : 'badge-neutral'">{{ t.status }}</span>
+            <span class="mono">{{ t.command }}</span>
+            <span class="test-counts">{{ t.passed }} passed, {{ t.failed }} failed</span>
+          </div>
+        }
+
+        <div class="kv-row status-row">
+          <span class="kv-key">Status</span>
+          <span class="badge" [ngClass]="executionReport.status === 'completed' ? 'badge-green' : 'badge-red'">{{ executionReport.status }}</span>
+        </div>
+        @if (executionReport.notes.length) {
+          <ul class="note-list">
+            @for (n of executionReport.notes; track n) {
+              <li>{{ n }}</li>
+            }
+          </ul>
+        }
+      }
+    </div>
+  }
+
+  <!-- REVIEWS -->
+  @if (reviews.length) {
+    <h2 class="section-heading">Reviews</h2>
+    <div class="card">
+      @for (review of reviews; track review.agent) {
+        <div class="kv-row">
+          <span class="kv-key">{{ agentLabels[review.agent] }}</span>
+          <span class="badge" [ngClass]="review.status === 'PASS' ? 'badge-green' : 'badge-red'">{{ review.status === 'PASS' ? '✓ PASS' : '✕ FAIL' }}</span>
+        </div>
+      }
+      <div class="kv-row status-row"><span class="kv-key">Blocking Issues</span><span class="kv-value">{{ blockingFindingsCount }}</span></div>
+      <div class="kv-row"><span class="kv-key">Warnings</span><span class="kv-value">{{ warningFindingsCount }}</span></div>
+
+      @if (task.reviewRetryCount > 0) {
+        <p class="retry-note">This task returned to implementation {{ task.reviewRetryCount }} time(s) after blocking review findings.</p>
+      }
+
+      @for (review of reviews; track review.agent) {
+        @for (finding of review.findings; track finding.summary) {
+          <div class="finding-row">
+            <span class="badge" [ngClass]="finding.severity === 'blocking' ? 'badge-red' : 'badge-amber'">{{ finding.severity }}</span>
+            <div>
+              <p class="finding-summary">{{ finding.summary }}</p>
+              <p class="finding-recommendation">{{ finding.recommendation }}</p>
+            </div>
+          </div>
+        }
+      }
+    </div>
+  }
+
+  <!-- FINAL HANDOFF -->
+  @if (handoff) {
+    <h2 class="section-heading">Task Complete</h2>
+    <div class="card handoff-card">
+      <p class="handoff-summary">{{ handoff.summary }}</p>
+      <div class="handoff-grid">
+        <div><span class="handoff-value">{{ handoff.agentsUsed.length }}</span><span class="handoff-label">Agents Used</span></div>
+        <div><span class="handoff-value">{{ handoff.filesChanged }}</span><span class="handoff-label">Files Changed</span></div>
+        <div><span class="handoff-value">{{ handoff.testsPassed }}</span><span class="handoff-label">Tests Passed</span></div>
+        <div><span class="handoff-value">{{ handoff.reviewsPassed }}</span><span class="handoff-label">Reviews Passed</span></div>
+        <div><span class="handoff-value">{{ handoff.architectureDecisions }}</span><span class="handoff-label">Architecture Decisions</span></div>
+        <div><span class="handoff-value">{{ handoff.warnings }}</span><span class="handoff-label">Warnings</span></div>
+      </div>
+      @if (handoffMarkdown) {
+        <details class="handoff-markdown">
+          <summary>View final-handoff.md</summary>
+          <pre>{{ handoffMarkdown }}</pre>
+        </details>
+      }
+    </div>
+  }
+}
