@@ -14,9 +14,13 @@ This mirrors `orchestrator/ORCHESTRATOR.md`'s explicit rule: "Do not copy their 
 
 See [MVP_ARCHITECTURE.md](MVP_ARCHITECTURE.md#routing-engine) for the full matrix. In short: the repository is inspected first (language, framework, database, test commands actually detected from the filesystem — never assumed from the requirement text alone), then the routing engine picks the minimum specialist set for the requirement's *engineering responsibility*, not just its named technology.
 
+## Memory retrieval → specialist analysis
+
+Before specialists analyze, the orchestrator retrieves relevant **validated** engineering memory (`buildContextPack()` — see [MEMORY_LAYER.md](MEMORY_LAYER.md)) and filters it per specialist, so a Postgres-specific lesson reaches the Database agent, not a Node-only analysis call. Only human-approved memory is ever eligible — a candidate lesson can never reach this step. Current repository evidence always takes precedence over memory if the two conflict; the conflict is flagged, never silently resolved.
+
 ## Specialist analysis → reconciliation
 
-Selected specialists analyze in parallel (`ClaudeCodeExecutor.analyze()`), each returning a `SpecialistReport` (recommendation, findings with evidence, risks, assumptions, confidence). The orchestrator then reconciles them into one of:
+Selected specialists analyze in parallel (`ClaudeCodeExecutor.analyze()`), each returning a `SpecialistReport` (recommendation, findings with evidence, risks, assumptions, confidence) informed by that filtered memory context. The orchestrator then reconciles them into one of:
 
 - **AGREED** — proceed to planning.
 - **UNKNOWN** — a specialist analysis failed or produced no usable output; task is `blocked` rather than proceeding on insufficient evidence.
@@ -46,3 +50,5 @@ After implementation, each selected specialist reviews the result from its own d
 ## Final handoff
 
 Every completed task writes `tasks/<task-id>/final-handoff.json` (structured) and `final-handoff.md` (human-readable), summarizing: agents used, files changed, test results, review results, architecture decision count, and warnings — all pulled from the same artifacts the UI reads, never re-derived or re-claimed separately.
+
+Completion also generates candidate engineering lessons from the reconciliation decisions (never for `blocked`/`failed` tasks) — see [MEMORY_LAYER.md](MEMORY_LAYER.md) for the full lifecycle from candidate to human-approved validated memory.

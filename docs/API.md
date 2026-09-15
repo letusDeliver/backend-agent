@@ -55,7 +55,7 @@ Server-Sent Events stream. Replays full history on connect, then streams live ev
 { "id": "...", "taskId": "...", "type": "REPOSITORY_INSPECTION_COMPLETED", "message": "...", "data": { }, "createdAt": "..." }
 ```
 
-Event types: `TASK_CREATED`, `REPOSITORY_INSPECTION_STARTED`, `REPOSITORY_INSPECTION_COMPLETED`, `AGENT_SELECTED`, `WORKSPACE_PREPARED`, `WORKSPACE_PREPARATION_FAILED`, `AGENT_ANALYSIS_STARTED`, `AGENT_ANALYSIS_COMPLETED`, `RECONCILIATION_STARTED`, `RECONCILIATION_COMPLETED`, `IMPLEMENTATION_PLAN_CREATED`, `IMPLEMENTATION_STARTED`, `IMPLEMENTATION_COMPLETED`, `REVIEW_STARTED`, `REVIEW_COMPLETED`, `REVIEW_BLOCKING_ISSUE_FOUND`, `TASK_COMPLETED`, `TASK_FAILED`, `TASK_BLOCKED`, `TASK_CANCELLED`. `WORKSPACE_PREPARED`/`WORKSPACE_PREPARATION_FAILED` only ever fire for real-mode tasks.
+Event types: `TASK_CREATED`, `REPOSITORY_INSPECTION_STARTED`, `REPOSITORY_INSPECTION_COMPLETED`, `AGENT_SELECTED`, `WORKSPACE_PREPARED`, `WORKSPACE_PREPARATION_FAILED`, `MEMORY_RETRIEVED`, `AGENT_ANALYSIS_STARTED`, `AGENT_ANALYSIS_COMPLETED`, `RECONCILIATION_STARTED`, `RECONCILIATION_COMPLETED`, `IMPLEMENTATION_PLAN_CREATED`, `IMPLEMENTATION_STARTED`, `IMPLEMENTATION_COMPLETED`, `REVIEW_STARTED`, `REVIEW_COMPLETED`, `REVIEW_BLOCKING_ISSUE_FOUND`, `TASK_COMPLETED`, `CANDIDATE_LESSONS_GENERATED`, `TASK_FAILED`, `TASK_BLOCKED`, `TASK_CANCELLED`. `WORKSPACE_PREPARED`/`WORKSPACE_PREPARATION_FAILED` only ever fire for real-mode tasks. `CANDIDATE_LESSONS_GENERATED` only fires for tasks that reach `completed` — it fires with `count: 0` when no reconciliation decision met the confidence bar, which is an expected, not an error, outcome.
 
 ## `GET /tasks/:id/agents`
 
@@ -80,6 +80,38 @@ Event types: `TASK_CREATED`, `REPOSITORY_INSPECTION_STARTED`, `REPOSITORY_INSPEC
 ## `GET /tasks/:id/handoff`
 
 `{ "handoff": FinalHandoff | null, "markdown": string | null }`
+
+## `GET /tasks/:id/memory`
+
+`{ "contextPack": ContextPack | null }` — what was retrieved from engineering memory for this task, what was actually included in specialist context, and any conflicts against repository evidence. `null` until the task reaches (or passes) the `analyzing` stage. See [MEMORY_LAYER.md](MEMORY_LAYER.md).
+
+## Memory API
+
+See [MEMORY_LAYER.md](MEMORY_LAYER.md) for the full lifecycle. All routes are under `/api/memory`.
+
+### `GET /memory`
+
+`{ "items": MemoryItem[] }`. Optional query params: `type` (`task_history | project_memory | global_knowledge | candidate_lesson | validated_lesson`), `validationStatus` (`validated | candidate | rejected | historical`), `scope` (a repository path or `global`).
+
+### `GET /memory/candidates`
+
+`{ "items": MemoryItem[] }` — shorthand for `?validationStatus=candidate`.
+
+### `GET /memory/:id`
+
+`{ "item": MemoryItem }` or `404`.
+
+### `POST /memory/:id/approve`
+
+Body: `{ "approvedBy"?: string }` (defaults to `"developer"` — this MVP has no auth system). Turns a candidate into validated memory (`type` becomes `validated_lesson`, `validationStatus` becomes `validated`), stamping `provenance.approvedAt`/`approvedBy`. `409` if already validated.
+
+### `POST /memory/:id/reject`
+
+Marks `validationStatus: "rejected"` and stamps `provenance.rejectedAt`. The item is never deleted — it stays visible for audit but is permanently excluded from retrieval. `409` if already rejected.
+
+### `PATCH /memory/:id`
+
+Body: any of `{ "content"?: string, "technology"?: string[], "taskType"?: string }`. Edits the item and sets `provenance.humanEdited: true`. Works regardless of validation status.
 
 ## `GET /stats`
 

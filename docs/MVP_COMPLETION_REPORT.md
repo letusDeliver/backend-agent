@@ -11,8 +11,8 @@ A runnable, end-to-end vertical slice of the Backend Engineering Agent Platform,
 - **Claude Code execution layer** — a `ClaudeCodeExecutor` abstraction with a default `MockClaudeCodeExecutor` (deterministic, evidence-grounded, filesystem-untouched, clearly labeled) and an opt-in `RealClaudeCodeExecutor` that shells out to the local `claude` CLI in non-interactive print mode and runs real test commands via `child_process`.
 - **Artifact-first task workspaces** at `tasks/<task-id>/`, matching the architecture package's `protocols/artifact-contracts.json` exactly, readable both from disk and through the API.
 - **Review loop** with bounded corrective retries (default 2) before a task is marked `blocked`.
-- **Lightweight memory interfaces** (global knowledge / project memory / task history / candidate lessons / approved lessons) with working task history and a keyword-overlap retrieval implementation — deliberately not a vector/RAG system, per the explicit instruction not to overbuild this in the MVP.
-- **56 automated tests** (43 backend + 13 frontend) including a full Python+PostgreSQL end-to-end happy-path integration test.
+- **Engineering memory, wired into orchestration since Phase 29** (global knowledge / project memory / task history / candidate lessons / validated lessons) with technology-tag + keyword-overlap retrieval — deliberately not a vector/RAG system. Memory is retrieved before every specialist analysis, a completed task can generate candidate lessons from its own reconciliation decisions, and only a human-approved lesson ever influences a later task. See `docs/MEMORY_LAYER.md`.
+- **118 automated tests** (101 backend + 16 frontend) including a full Python+PostgreSQL end-to-end happy-path integration test and an end-to-end memory-loop test proving candidate → approval → retrieval actually closes.
 
 ## Architecture
 
@@ -29,14 +29,18 @@ POST /tasks/:id/start                GET /tasks/:id/events (SSE)
 GET  /tasks/:id/agents               GET /tasks/:id/reconciliation
 GET  /tasks/:id/implementation-plan  GET /tasks/:id/execution-report
 GET  /tasks/:id/reviews              GET /tasks/:id/handoff
-GET  /stats                          GET /specialists
+GET  /tasks/:id/memory               GET /stats
+GET  /specialists
+GET  /memory  ·  GET /memory/candidates  ·  GET /memory/:id
+POST /memory/:id/approve  ·  POST /memory/:id/reject  ·  PATCH /memory/:id
 ```
 
 ## UI screens
 
 - **Dashboard** — active/completed/failed/blocked counts, specialist availability, recent tasks.
 - **Create Task** — requirement, repository path, optional preferred technology/database/constraints.
-- **Task Detail** — execution timeline (derived from real task status, backed by an expandable raw SSE activity log), REAL/MOCK execution banner, repository evidence, specialists panel (findings/risks/confidence per agent, "Not required" for unselected agents), reconciliation (decisions/evidence/risks/conflicts), implementation (file list matched against actual changed files, test results, status), reviews (PASS/FAIL, blocking/warning findings, retry note), final handoff (summary grid + `final-handoff.md` viewer).
+- **Task Detail** — execution timeline (derived from real task status, backed by an expandable raw SSE activity log), REAL/MOCK execution banner, repository evidence, memory panel (retrieved/included/excluded counts, conflicts, why each item was included), specialists panel (findings/risks/confidence per agent, "Not required" for unselected agents), reconciliation (decisions/evidence/risks/conflicts), implementation (file list matched against actual changed files, test results, status), reviews (PASS/FAIL, blocking/warning findings, retry note), final handoff (summary grid + `final-handoff.md` viewer).
+- **Memory** — overview counts (validated/candidate/rejected), candidate lesson review (approve/edit/reject with provenance back to the source task), validated memory list.
 
 ## Agent workflow
 
@@ -52,16 +56,19 @@ See [AGENT_WORKFLOW.md](AGENT_WORKFLOW.md). Specialist contracts are loaded at r
 ## Tests executed
 
 ```
-Backend (vitest):  72 passed  (routing engine × 8, repository inspector × 4, reconciliation × 4,
+Backend (vitest):  101 passed (routing engine × 8, repository inspector × 4, reconciliation × 4,
                                 path sanitization × 6, event bus × 2, API integration × 15,
                                 end-to-end Python+PostgreSQL happy path × 7, repository safety × 7,
                                 git worktree isolation × 9, real executor unit (mocked) × 4,
-                                real execution integration (fixture CLI) × 2, timeout × 1, cancel × 3)
-Frontend (jest):   13 passed  (app shell × 2, dashboard × 3, create-task × 3, task-detail × 5)
-E2E (playwright):   1 passed  (dashboard → create task → live SSE completion, mock executor, headless)
+                                real execution integration (fixture CLI) × 2, timeout × 1, cancel × 3,
+                                memory store retrieval/CRUD × 7, context pack × 5, candidate
+                                lessons × 8, memory API × 7, end-to-end memory loop × 2)
+Frontend (jest):    16 passed  (app shell × 2, dashboard × 3, create-task × 3, task-detail × 5,
+                                memory × 3)
+E2E (playwright):    1 passed  (dashboard → create task → live SSE completion, mock executor, headless)
 Backend build:     tsc -p tsconfig.json — clean
 Backend lint:      tsc --noEmit — clean
-Frontend build:    ng build — clean (269 kB initial, well under budget)
+Frontend build:    ng build — clean (270 kB initial, well under budget)
 CI:                .github/workflows/ci.yml runs all of the above on every push/PR (added Phase 28)
 ```
 
@@ -71,7 +78,7 @@ Additionally verified manually, in a browser, via a headless-Chromium Playwright
 
 - ~~Real Claude Code execution mode is implemented but not exercised end-to-end~~ — **resolved in Phase 28**: real execution now runs in an isolated git worktree and has been exercised end-to-end against a disposable repository, with the actual output documented in `docs/PHASE_28_COMPLETION_REPORT.md`.
 - The JSON-file task store is fine for single-developer local use; it is not designed for concurrent multi-writer or multi-machine use. The `TaskStore` interface is the intended swap point for a future PostgreSQL implementation.
-- Memory retrieval is keyword-overlap, not semantic/vector search — adequate for the MVP's scope, explicitly not built further per the build instructions. Still entirely unwired into the orchestration pipeline as of Phase 28 — deliberately deferred (see `docs/NEXT_STEPS_ARCHITECTURE_REVIEW.md`).
+- ~~Memory retrieval is keyword-overlap and entirely unwired into the orchestration pipeline~~ — **resolved in Phase 29**: memory is now retrieved before every specialist analysis, gated by a human-approval workflow. Retrieval itself is still technology-tag + keyword-overlap, not semantic/vector search — deliberately, per this phase's explicit scope (see `docs/MEMORY_LAYER.md`). `task_history`/`project_memory`/`global_knowledge` are still not auto-written into the memory store (task history is covered by the existing artifact trail instead).
 - No authentication — this is a local, single-developer tool, matching the MVP's explicitly non-production scope.
 - The implementation plan's file-path guesses are heuristic (framework-convention-based); `RealClaudeCodeExecutor.implement()` is expected to follow the actual repository's real conventions rather than treat the plan's paths as literal. Since Phase 28, `changedFiles`/`diff` reflect a real `git diff` of the isolated worktree, not Claude's self-report — but the *plan's* suggested file list is still just a guess and commonly won't match what actually changed (this is expected, not a bug).
 - Routing's keyword-based text analysis (for "material persistence concern," cross-stack detection, etc.) is a reasonable heuristic layer, not a language-model judgment — documented as such in `MVP_ARCHITECTURE.md` and covered by the routing engine's test suite, but it can be fooled by unusual phrasing.
@@ -82,7 +89,8 @@ Additionally verified manually, in a browser, via a headless-Chromium Playwright
 ## Future improvements
 
 - Swap `JsonFileTaskStore` for a `PostgresTaskStore` behind the existing interface once persistence needs to scale beyond a single developer machine.
-- Wire the memory layer's candidate/approved-lesson types to something that actually writes them (e.g., promoting a validated architecture decision after a human approves a completed task) — the recommended next milestone after Phase 28.
+- ~~Wire the memory layer's candidate/approved-lesson types to something that actually writes them~~ — **done in Phase 29**.
+- Add semantic/vector retrieval behind the existing `MemoryStore.retrieve()` interface once keyword+tag matching proves insufficient in practice.
 - Add the Phase 26 knowledge ingestion pipeline for repository documentation/ADRs once the platform has more than one active project to learn from.
 - Detect real cross-specialist conflicts in reconciliation instead of only escalation/failure-triggered blocking.
 - Add cancel/retry/resume for the full task lifecycle (today cancellation exists, but `blocked`/`failed` tasks are still dead ends).

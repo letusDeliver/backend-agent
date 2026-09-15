@@ -15,8 +15,11 @@ Express Orchestrator API (server/)
    │
    ├─ Routing Engine ────────── Phase 24 cross-stack benchmark matrix
    │
+   ├─ Memory Retrieval ───────  MemoryStore.retrieve() -> Context Pack (validated only)
+   │
    ├─ Specialist Analysis ───── ClaudeCodeExecutor.analyze() × selected agents (parallel)
    │        uses: claude-code-platform-architecture-v0.1/agents/<agent>/CLAUDE.md
+   │        + per-agent-filtered memory context
    │
    ├─ Reconciliation ────────── AGREED / CONFLICT / UNKNOWN / NEEDS_USER_DECISION
    │
@@ -35,6 +38,7 @@ Every task's intermediate state is written to `tasks/<task-id>/`, matching `clau
 tasks/<task-id>/
 ├── task.json
 ├── context/
+│   └── memory-retrieval.json   (Phase 29 — what memory was retrieved/included/excluded)
 ├── specialist-reports/
 │   ├── specialist-python-backend.json
 │   ├── specialist-node-backend.json
@@ -117,7 +121,7 @@ A future `PostgresTaskStore` (the durable store the project memory ultimately in
 
 ## Memory
 
-Per the explicit instruction not to overbuild memory in the MVP, `server/src/memory/` implements only the type distinctions from Project Memory Phase 25 (global knowledge / project memory / task history / candidate lessons / approved lessons) plus a lightweight keyword-overlap `retrieve()` — not a vector/RAG pipeline. Task history is already real (every task's full artifact trail); the other memory types have working storage and retrieval but nothing yet writes candidate/approved lessons automatically. This is the seam Phase 26's ingestion pipeline would plug into later.
+Per the explicit instruction not to overbuild memory in the MVP, `server/src/memory/` implements the type distinctions from Project Memory Phase 25 (global knowledge / project memory / task history / candidate lessons / validated lessons) plus a lightweight technology-tag + keyword-overlap `retrieve()` — not a vector/RAG pipeline. Since Phase 29 this is wired into orchestration: memory is retrieved before specialist analysis, a completed task can generate candidate lessons, and only a human-approved lesson ever influences a later task. See "Phase 29 — Memory: First Real Loop" below and `docs/MEMORY_LAYER.md` for the full lifecycle. This is the seam Phase 26's ingestion pipeline would plug into later.
 
 ## Events
 
@@ -145,3 +149,18 @@ Phase 28 addressed the two largest gaps identified by the architecture review th
 Test count: 43 → 72 backend tests, +13 frontend (unchanged) = **85 total**, plus a committed E2E test. A real (non-fixture) `claude` CLI validation was run against a disposable repository as part of this phase — see `docs/PHASE_28_COMPLETION_REPORT.md` for the actual output.
 
 Explicitly not addressed by Phase 28 (deferred to later milestones per the architecture review's roadmap): memory-layer wiring, reconciliation's `CONFLICT` detection, automatic workspace cleanup, container/VM-level sandboxing beyond git isolation, and cancellation of an in-flight `runTests()` call specifically.
+
+## Phase 29 — Memory: First Real Loop
+
+Phase 29 wired `MemoryStore` into orchestration for the first time — it had existed since the MVP but nothing referenced it outside `container.ts`. Full detail lives in `docs/MEMORY_LAYER.md` and `docs/PHASE_29_COMPLETION_REPORT.md`; summarized here for the architecture record:
+
+- **Retrieval-in** (`ORCHESTRATOR.md` responsibility #3, previously unimplemented): after routing, before specialist analysis, `buildContextPack()` queries `MemoryStore.retrieve()` — hard-filtered to `validationStatus === "validated"` inside the store itself — and persists the result to `tasks/<id>/context/memory-retrieval.json`.
+- **Trust model**: `MemoryItem.validationStatus` distinguishes `validated | candidate | rejected | historical`. Only `validated` items are ever retrievable for specialist context. A memory item that conflicts with the current repository's detected stack (e.g. names a different database) is flagged, never silently trusted — repository evidence always wins.
+- **Per-agent filtering**: `memoryForAgent()` keeps a memory item for a specialist only if its technology tags overlap that agent's stack family, or if the item carries no technology tag at all (general guidance reaches every agent).
+- **Candidate lesson generation**: a completed task's reconciliation decisions (confidence ≥ 0.6) become `candidate_lesson` items with full provenance (`taskId`/`agent`/`artifact`/`decision`), filtered through a sensitive-content check before ever being persisted. Never auto-promoted.
+- **Human approval gate** (`/api/memory/:id/approve|reject`, `PATCH /api/memory/:id`): the only path from candidate to validated memory. Rejected items are kept (never deleted) but permanently excluded from retrieval.
+- **Task history stays the existing artifact trail** — deliberately not duplicated into `MemoryStore`, per `ORCHESTRATOR.md`'s own "do not duplicate repository source into memory unnecessarily" rule.
+
+Test count: 72 → 101 backend tests, 13 → 16 frontend tests = **118 total**, plus the unchanged committed E2E test. The most important new test (`memoryLoop.e2e.test.ts`) proves the loop actually closes: Task A completes → candidate generated → approved via the API → Task B's specialist analysis provably receives it.
+
+Explicitly not addressed by Phase 29 (deferred; see `docs/MEMORY_LAYER.md`'s "Known limitations"): vector/semantic retrieval, automatic candidate promotion, automatic project→global scope promotion, `task_history`/`project_memory`/`global_knowledge` auto-writing, reconciliation's `CONFLICT` detection, task retry/resume, new specialist agents.

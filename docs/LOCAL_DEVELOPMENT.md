@@ -57,8 +57,9 @@ npm run dev
 npm test              # everything (server + web)
 npm run test:server   # vitest — routing engine, repository inspector, reconciliation,
                        # path sanitization, event bus, API integration, end-to-end happy path,
-                       # git-worktree isolation, real-executor hardening (mocked + fixture-CLI)
-npm run test:web      # jest — dashboard, create-task, task-detail components
+                       # git-worktree isolation, real-executor hardening (mocked + fixture-CLI),
+                       # memory retrieval/context-pack/candidate-lessons/approval, end-to-end memory loop
+npm run test:web      # jest — dashboard, create-task, task-detail, memory components
 npm run test:e2e      # playwright — full browser flow against the mock executor, headless
 ```
 
