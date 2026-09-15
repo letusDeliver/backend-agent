@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, OnInit } from '@angular/core';
+import { Component, OnInit, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { RouterLink } from '@angular/router';
 import { forkJoin } from 'rxjs';
@@ -10,14 +10,13 @@ import type { Task } from '../../models/task.model';
     imports: [CommonModule, RouterLink],
     templateUrl: './dashboard.component.html',
     styleUrl: './dashboard.component.css',
-    changeDetection: ChangeDetectionStrategy.Default
 })
 export class DashboardComponent implements OnInit {
-  stats: Stats | null = null;
-  specialists: Specialist[] = [];
-  recentTasks: Task[] = [];
-  loading = true;
-  error = '';
+  readonly stats = signal<Stats | null>(null);
+  readonly specialists = signal<Specialist[]>([]);
+  readonly recentTasks = signal<Task[]>([]);
+  readonly loading = signal(true);
+  readonly error = signal('');
 
   constructor(private readonly taskService: TaskService) {}
 
@@ -28,14 +27,14 @@ export class DashboardComponent implements OnInit {
       tasks: this.taskService.listTasks(),
     }).subscribe({
       next: ({ stats, specialists, tasks }) => {
-        this.stats = stats;
-        this.specialists = specialists.specialists;
-        this.recentTasks = tasks.tasks.slice(0, 8);
-        this.loading = false;
+        this.stats.set(stats);
+        this.specialists.set(specialists.specialists);
+        this.recentTasks.set(tasks.tasks.slice(0, 8));
+        this.loading.set(false);
       },
       error: () => {
-        this.error = 'Could not reach the orchestrator API.';
-        this.loading = false;
+        this.error.set('Could not reach the orchestrator API.');
+        this.loading.set(false);
       },
     });
   }

@@ -1,8 +1,6 @@
-@if (loading) {
+@if (loading()) {
   <div class="empty-state">Loading task…</div>
-} @else if (notFound || !task) {
-  <div class="empty-state">Task not found. <a routerLink="/dashboard">Back to dashboard</a></div>
-} @else {
+} @else if (task(); as task) {
   <div class="task-header">
     <div>
       <p class="eyebrow">TASK</p>
@@ -41,10 +39,10 @@
       </div>
     }
   </div>
-  <button class="link-btn" (click)="toggleActivityLog()">{{ showActivityLog ? 'Hide' : 'Show' }} raw activity log ({{ events.length }})</button>
-  @if (showActivityLog) {
+  <button class="link-btn" (click)="toggleActivityLog()">{{ showActivityLog() ? 'Hide' : 'Show' }} raw activity log ({{ events().length }})</button>
+  @if (showActivityLog()) {
     <div class="card activity-log">
-      @for (event of events; track event.id) {
+      @for (event of events(); track event.id) {
         <div class="log-row">
           <span class="log-time">{{ event.createdAt | date: 'HH:mm:ss' }}</span>
           <span class="log-type">{{ event.type }}</span>
@@ -93,7 +91,7 @@
   </div>
 
   <!-- RECONCILIATION -->
-  @if (reconciliation) {
+  @if (reconciliation(); as reconciliation) {
     <h2 class="section-heading">Reconciliation</h2>
     <div class="card">
       <div class="kv-row">
@@ -136,7 +134,7 @@
   }
 
   <!-- IMPLEMENTATION -->
-  @if (plan) {
+  @if (plan(); as plan) {
     <h2 class="section-heading">Implementation</h2>
     <div class="card">
       <p class="plan-summary">{{ plan.summary }}</p>
@@ -152,7 +150,7 @@
         }
       </ul>
 
-      @if (executionReport) {
+      @if (executionReport(); as executionReport) {
         <p class="kv-key files-heading">Tests</p>
         @if (executionReport.tests.length === 0) {
           <p class="empty-state">No test evidence yet.</p>
@@ -181,23 +179,23 @@
   }
 
   <!-- REVIEWS -->
-  @if (reviews.length) {
+  @if (reviews().length) {
     <h2 class="section-heading">Reviews</h2>
     <div class="card">
-      @for (review of reviews; track review.agent) {
+      @for (review of reviews(); track review.agent) {
         <div class="kv-row">
           <span class="kv-key">{{ agentLabels[review.agent] }}</span>
           <span class="badge" [ngClass]="review.status === 'PASS' ? 'badge-green' : 'badge-red'">{{ review.status === 'PASS' ? '✓ PASS' : '✕ FAIL' }}</span>
         </div>
       }
-      <div class="kv-row status-row"><span class="kv-key">Blocking Issues</span><span class="kv-value">{{ blockingFindingsCount }}</span></div>
-      <div class="kv-row"><span class="kv-key">Warnings</span><span class="kv-value">{{ warningFindingsCount }}</span></div>
+      <div class="kv-row status-row"><span class="kv-key">Blocking Issues</span><span class="kv-value">{{ blockingFindingsCount() }}</span></div>
+      <div class="kv-row"><span class="kv-key">Warnings</span><span class="kv-value">{{ warningFindingsCount() }}</span></div>
 
       @if (task.reviewRetryCount > 0) {
         <p class="retry-note">This task returned to implementation {{ task.reviewRetryCount }} time(s) after blocking review findings.</p>
       }
 
-      @for (review of reviews; track review.agent) {
+      @for (review of reviews(); track review.agent) {
         @for (finding of review.findings; track finding.summary) {
           <div class="finding-row">
             <span class="badge" [ngClass]="finding.severity === 'blocking' ? 'badge-red' : 'badge-amber'">{{ finding.severity }}</span>
@@ -212,7 +210,7 @@
   }
 
   <!-- FINAL HANDOFF -->
-  @if (handoff) {
+  @if (handoff(); as handoff) {
     <h2 class="section-heading">Task Complete</h2>
     <div class="card handoff-card">
       <p class="handoff-summary">{{ handoff.summary }}</p>
@@ -224,7 +222,7 @@
         <div><span class="handoff-value">{{ handoff.architectureDecisions }}</span><span class="handoff-label">Architecture Decisions</span></div>
         <div><span class="handoff-value">{{ handoff.warnings }}</span><span class="handoff-label">Warnings</span></div>
       </div>
-      @if (handoffMarkdown) {
+      @if (handoffMarkdown(); as handoffMarkdown) {
         <details class="handoff-markdown">
           <summary>View final-handoff.md</summary>
           <pre>{{ handoffMarkdown }}</pre>
@@ -232,4 +230,6 @@
       }
     </div>
   }
+} @else {
+  <div class="empty-state">Task not found. <a routerLink="/dashboard">Back to dashboard</a></div>
 }

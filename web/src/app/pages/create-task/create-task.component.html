@@ -45,11 +45,11 @@
     <textarea id="constraints" formControlName="constraints" rows="3" placeholder="Must preserve the existing public API."></textarea>
   </div>
 
-  @if (error) {
-    <div class="error-banner">{{ error }}</div>
+  @if (error(); as errorMessage) {
+    <div class="error-banner">{{ errorMessage }}</div>
   }
 
-  <button type="submit" class="btn btn-primary submit-btn" [disabled]="submitting">
-    {{ submitting ? 'Starting…' : 'Start Engineering' }}
+  <button type="submit" class="btn btn-primary submit-btn" [disabled]="submitting()">
+    {{ submitting() ? 'Starting…' : 'Start Engineering' }}
   </button>
 </form>

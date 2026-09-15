@@ -88,7 +88,7 @@ describe('CreateTaskComponent', () => {
 
     component.submit();
 
-    expect(component.error).toBe('Repository path does not exist.');
+    expect(component.error()).toBe('Repository path does not exist.');
     expect(router.navigate).not.toHaveBeenCalled();
   });
 });

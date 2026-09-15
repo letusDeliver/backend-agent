@@ -1,4 +1,4 @@
-import { Injectable, NgZone } from "@angular/core";
+import { Injectable } from "@angular/core";
 import { HttpClient } from "@angular/common/http";
 import { Observable } from "rxjs";
 import type {
@@ -31,10 +31,7 @@ export interface Stats {
 export class TaskService {
   private readonly baseUrl = "/api";
 
-  constructor(
-    private readonly http: HttpClient,
-    private readonly zone: NgZone
-  ) {}
+  constructor(private readonly http: HttpClient) {}
 
   createTask(input: TaskCreateInput): Observable<{ task: Task }> {
     return this.http.post<{ task: Task }>(`${this.baseUrl}/tasks`, input);
@@ -87,20 +84,19 @@ export class TaskService {
   /**
    * Live task event stream via Server-Sent Events. Wrapped as an Observable
    * so components can subscribe/unsubscribe the same way as any other
-   * reactive source; EventSource callbacks are re-entered inside NgZone so
-   * change detection runs for UI updates driven by the stream.
+   * reactive source. This app is zoneless: consuming components write
+   * received events into signals, and a signal write is itself what
+   * schedules change detection — no NgZone re-entry is needed here.
    */
   watchEvents(id: string): Observable<TaskEvent> {
     return new Observable<TaskEvent>((subscriber) => {
       const source = new EventSource(`${this.baseUrl}/tasks/${id}/events`);
       const handler = (message: MessageEvent<string>) => {
-        this.zone.run(() => {
-          try {
-            subscriber.next(JSON.parse(message.data) as TaskEvent);
-          } catch {
-            // Ignore malformed frames rather than tearing down the stream.
-          }
-        });
+        try {
+          subscriber.next(JSON.parse(message.data) as TaskEvent);
+        } catch {
+          // Ignore malformed frames rather than tearing down the stream.
+        }
       };
       // Named events are dispatched per EventType; a generic listener covers
       // every type without re-registering per event name.
