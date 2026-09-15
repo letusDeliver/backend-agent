@@ -47,37 +47,45 @@ See [AGENT_WORKFLOW.md](AGENT_WORKFLOW.md). Specialist contracts are loaded at r
 **Both modes are real code paths, not one real and one stubbed:**
 
 - `mock` (default) — fully implemented, deterministic, never touches the filesystem, every output explicitly labeled `MOCK / SIMULATED EXECUTION` in both the artifacts and the UI.
-- `real` (opt-in via `CLAUDE_EXECUTION_MODE=real`) — fully implemented against the actual `claude` CLI installed in this environment (`claude -p ... --output-format json --permission-mode plan|acceptEdits`), with real test execution via `child_process`. **Not exercised end-to-end in this session** — doing so would have modified a real repository's files as a side effect of an automated build session, which is exactly the kind of hard-to-reverse action this platform's own security guidance (and this environment's operating rules) says to avoid without explicit user sign-off. The code path is implemented, typed, and builds cleanly; a user who explicitly opts in should validate it against a disposable/test repository first.
+- `real` (opt-in via `CLAUDE_EXECUTION_MODE=real`) — fully implemented against the actual `claude` CLI installed in this environment (`claude -p ... --output-format json --permission-mode plan|acceptEdits`), with real test execution via `child_process`. As of Phase 28, execution runs against an isolated git worktree/branch rather than the caller's live repository, and **has been exercised end-to-end** — against a disposable repository created specifically for that purpose, never against a repository whose history mattered — with the full real output documented in `docs/PHASE_28_COMPLETION_REPORT.md`. A user opting into real mode should still validate it against their own disposable/test repository first before pointing it at anything they care about.
 
 ## Tests executed
 
 ```
-Backend (vitest):  43 passed  (routing engine × 8, repository inspector × 4, reconciliation × 4,
-                                path sanitization × 6, event bus × 2, API integration × 12,
-                                end-to-end Python+PostgreSQL happy path × 7)
+Backend (vitest):  72 passed  (routing engine × 8, repository inspector × 4, reconciliation × 4,
+                                path sanitization × 6, event bus × 2, API integration × 15,
+                                end-to-end Python+PostgreSQL happy path × 7, repository safety × 7,
+                                git worktree isolation × 9, real executor unit (mocked) × 4,
+                                real execution integration (fixture CLI) × 2, timeout × 1, cancel × 3)
 Frontend (jest):   13 passed  (app shell × 2, dashboard × 3, create-task × 3, task-detail × 5)
+E2E (playwright):   1 passed  (dashboard → create task → live SSE completion, mock executor, headless)
 Backend build:     tsc -p tsconfig.json — clean
 Backend lint:      tsc --noEmit — clean
-Frontend build:    ng build — clean (283 kB initial, well under budget)
+Frontend build:    ng build — clean (269 kB initial, well under budget)
+CI:                .github/workflows/ci.yml runs all of the above on every push/PR (added Phase 28)
 ```
 
-Additionally verified manually, in a browser, via a headless-Chromium Playwright session against the live `npm run dev` stack: dashboard renders, task creation form submits, task detail page live-updates through the full pipeline via real SSE events to a `completed` state with zero browser console errors, screenshots captured at each step.
+Additionally verified manually, in a browser, via a headless-Chromium Playwright session against the live `npm run dev` stack: dashboard renders, task creation form submits, task detail page live-updates through the full pipeline via real SSE events to a `completed` state with zero browser console errors, screenshots captured at each step. Phase 28 additionally ran one full task through **real** (non-mock) Claude Code execution against a disposable repository — see `docs/PHASE_28_COMPLETION_REPORT.md` for the actual output, including the isolated branch's real diff.
 
 ## Known limitations
 
-- Real Claude Code execution mode is implemented but not exercised end-to-end in this session (see above) — validate it yourself against a disposable repository before relying on it.
+- ~~Real Claude Code execution mode is implemented but not exercised end-to-end~~ — **resolved in Phase 28**: real execution now runs in an isolated git worktree and has been exercised end-to-end against a disposable repository, with the actual output documented in `docs/PHASE_28_COMPLETION_REPORT.md`.
 - The JSON-file task store is fine for single-developer local use; it is not designed for concurrent multi-writer or multi-machine use. The `TaskStore` interface is the intended swap point for a future PostgreSQL implementation.
-- Memory retrieval is keyword-overlap, not semantic/vector search — adequate for the MVP's scope, explicitly not built further per the build instructions.
+- Memory retrieval is keyword-overlap, not semantic/vector search — adequate for the MVP's scope, explicitly not built further per the build instructions. Still entirely unwired into the orchestration pipeline as of Phase 28 — deliberately deferred (see `docs/NEXT_STEPS_ARCHITECTURE_REVIEW.md`).
 - No authentication — this is a local, single-developer tool, matching the MVP's explicitly non-production scope.
-- The implementation plan's file-path guesses are heuristic (framework-convention-based); `RealClaudeCodeExecutor.implement()` is expected to follow the actual repository's real conventions rather than treat the plan's paths as literal, and the orchestrator's `changedFiles` reconciliation reflects whatever Claude Code actually reports.
+- The implementation plan's file-path guesses are heuristic (framework-convention-based); `RealClaudeCodeExecutor.implement()` is expected to follow the actual repository's real conventions rather than treat the plan's paths as literal. Since Phase 28, `changedFiles`/`diff` reflect a real `git diff` of the isolated worktree, not Claude's self-report — but the *plan's* suggested file list is still just a guess and commonly won't match what actually changed (this is expected, not a bug).
 - Routing's keyword-based text analysis (for "material persistence concern," cross-stack detection, etc.) is a reasonable heuristic layer, not a language-model judgment — documented as such in `MVP_ARCHITECTURE.md` and covered by the routing engine's test suite, but it can be fooled by unusual phrasing.
+- Reconciliation's `CONFLICT` status is defined in the type system but no code path currently assigns it — two specialists materially disagreeing isn't yet detected as distinct from one of them failing (tracked as a P2 roadmap item).
+- Real-execution cancellation is fully wired for `claude` CLI calls but not for an in-flight `runTests()` shell command specifically (see `docs/REAL_EXECUTION.md`).
+- No CI existed before Phase 28; CI now runs the full suite + a browser E2E test on every push, but real-CLI validation (as opposed to the fixture-CLI-backed automated tests) remains a manual, documented step, not part of the automated pipeline (see ADR 0004).
 
 ## Future improvements
 
 - Swap `JsonFileTaskStore` for a `PostgresTaskStore` behind the existing interface once persistence needs to scale beyond a single developer machine.
-- Wire the memory layer's candidate/approved-lesson types to something that actually writes them (e.g., promoting a validated architecture decision after a human approves a completed task).
+- Wire the memory layer's candidate/approved-lesson types to something that actually writes them (e.g., promoting a validated architecture decision after a human approves a completed task) — the recommended next milestone after Phase 28.
 - Add the Phase 26 knowledge ingestion pipeline for repository documentation/ADRs once the platform has more than one active project to learn from.
-- Exercise and harden `RealClaudeCodeExecutor` against a real benchmark repository, per Project Memory Phase 20's evaluation baseline.
+- Detect real cross-specialist conflicts in reconciliation instead of only escalation/failure-triggered blocking.
+- Add cancel/retry/resume for the full task lifecycle (today cancellation exists, but `blocked`/`failed` tasks are still dead ends).
 
 ## Exact local startup instructions
 

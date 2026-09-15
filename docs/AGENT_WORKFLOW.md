@@ -28,14 +28,16 @@ This follows `orchestrator/ORCHESTRATOR.md`'s "Do Not" list: the orchestrator do
 
 The orchestrator (not Claude Code) builds the reconciled `implementation-plan.json` — a best-effort file list plus the repository's real validation commands (test/lint/typecheck, only the ones actually detected). Claude Code then executes that reconciled plan rather than independently inventing cross-specialist architecture (Project Memory AD-082).
 
+In real mode, `execution-report.json`'s `changedFiles` and `diff` are computed from an actual `git diff` of the isolated worktree after Claude Code's changes are committed onto the task branch — not taken from Claude's own self-reported JSON. If the CLI's response claims a file changed that the diff doesn't show, the diff wins.
+
 ## Execution modes
 
 | Mode | How it runs | Can modify your repo? | Default? |
 |---|---|---|---|
 | `mock` | Deterministic, repository-evidence-grounded synthetic output. | Never. | Yes |
-| `real` | Shells out to the local `claude` CLI (`claude -p ... --permission-mode plan\|acceptEdits`), scoped to the task's repository. `runTests()` runs the repository's real test command directly. | Yes, during `implement()`. | No — opt in via `CLAUDE_EXECUTION_MODE=real`. |
+| `real` | Shells out to the local `claude` CLI (`claude -p ... --permission-mode plan\|acceptEdits`), scoped to an isolated git worktree on a dedicated branch created from the task's repository — never the repository's own checked-out working tree. `runTests()` runs the repository's real test command directly, inside that same worktree. | Only the isolated worktree/branch — your checked-out working tree is never touched. | No — opt in via `CLAUDE_EXECUTION_MODE=real`. |
 
-The UI always labels which mode produced a given task's artifacts (`REAL EXECUTION` vs `MOCK / SIMULATED EXECUTION`) — this is never hidden or ambiguous, per the platform's evidence-first principle ("never claim execution results unless they actually occurred").
+The UI always labels which mode produced a given task's artifacts (`REAL EXECUTION` vs `MOCK / SIMULATED EXECUTION`) — this is never hidden or ambiguous, per the platform's evidence-first principle ("never claim execution results unless they actually occurred"). See [REAL_EXECUTION.md](REAL_EXECUTION.md) for the full isolation, safety, timeout and cancellation model.
 
 ## Review loop
 

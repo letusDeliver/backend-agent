@@ -96,7 +96,7 @@ interface ClaudeCodeExecutor {
 ```
 
 - **`MockClaudeCodeExecutor`** (default) — deterministic, grounded in real repository-inspection evidence where available, but never touches the filesystem and never claims a test ran. Every artifact it produces is tagged `executionMode: "mock"`, and every `assumptions`/`notes` field says so explicitly.
-- **`RealClaudeCodeExecutor`** — shells out to the local `claude` CLI in non-interactive print mode (`claude -p ... --output-format json --permission-mode <mode>`), scoped to the task's repository path. `analyze()` and `review()` run in `plan` mode (read-only reasoning); `implement()` runs in `acceptEdits` mode (can modify files). `runTests()` runs the repository's own detected test command directly via `child_process`, independent of the LLM, so test evidence is never something Claude merely claims happened.
+- **`RealClaudeCodeExecutor`** — shells out to the local `claude` CLI in non-interactive print mode (`claude -p ... --output-format json --permission-mode <mode>`), scoped to an **isolated git worktree** (see Phase 28 below), never the repository's own checked-out working tree. `analyze()` and `review()` run in `plan` mode (read-only reasoning); `implement()` runs in `acceptEdits` mode (can modify files, but only inside the worktree). `runTests()` runs the repository's own detected test command directly via `child_process`, independent of the LLM, so test evidence is never something Claude merely claims happened.
 
 Selection is a single config value (`CLAUDE_EXECUTION_MODE`), defaulting to `mock`. This default is deliberate: automatically mutating a real repository as a side effect of a web UI button click is a hard-to-reverse action, so real execution requires an explicit operator opt-in — never a default. The UI never hides which mode produced a given result (`REAL EXECUTION` vs `MOCK / SIMULATED EXECUTION` banner on every task).
 
@@ -130,3 +130,18 @@ Server-Sent Events (`GET /api/tasks/:id/events`) backed by an in-memory `EventEm
 - Repository *content* is treated as untrusted evidence (findings, not instructions) — this is a documented boundary, not a runtime sandbox, consistent with the MVP's non-production scope.
 - No secrets are ever written to task artifacts or returned in API responses.
 - Real execution requires explicit operator configuration (`CLAUDE_EXECUTION_MODE=real`), never triggered implicitly.
+- **Since Phase 28**: real execution additionally runs only against an isolated git worktree (never the developer's live working tree — see below) and is preceded by a dedicated repository-safety check (home directory, system directories and the platform's own source tree are all refused).
+
+## Phase 28 — Trustworthy Real Execution
+
+Phase 28 addressed the two largest gaps identified by the architecture review that preceded it (`docs/NEXT_STEPS_ARCHITECTURE_REVIEW.md`): real execution had never been run end-to-end and had no isolation from the developer's working tree, and the whole system had zero CI. Full detail lives in `docs/REAL_EXECUTION.md` and `docs/PHASE_28_COMPLETION_REPORT.md`; summarized here for the architecture record:
+
+- **Git-worktree isolation** (ADR 0001, ADR 0002): every real-mode task gets an isolated worktree (`tasks/<task-id>/workspace/`) on a dedicated branch (`agent/task-<task-id>`), created from the repository's `HEAD`. The developer's working tree and current branch are never read for mutation or written to. `implement()`'s changes are committed onto the task branch and diffed against the base revision using real `git diff` — ground truth, not Claude's self-report. Nothing is ever auto-merged.
+- **Repository safety guard** (`server/src/utils/repositorySafety.ts`): rejects unsafe targets (home directory, system directories, the platform's own source tree) before a worktree is ever created.
+- **Process hardening**: timeouts are distinguished from ordinary failures and never reported as success; `POST /tasks/:id/cancel` kills in-flight Claude Code processes and the orchestrator checks for cancellation between every pipeline phase.
+- **CI + committed E2E** (ADR 0004): `.github/workflows/ci.yml` runs the full test suite and a Playwright browser E2E test (mock executor only) on every push/PR — the safety net this and every future phase now builds behind.
+- **Real-mode opt-in unchanged** (ADR 0003): still off by default, still a server-startup environment variable, never a UI toggle.
+
+Test count: 43 → 72 backend tests, +13 frontend (unchanged) = **85 total**, plus a committed E2E test. A real (non-fixture) `claude` CLI validation was run against a disposable repository as part of this phase — see `docs/PHASE_28_COMPLETION_REPORT.md` for the actual output.
+
+Explicitly not addressed by Phase 28 (deferred to later milestones per the architecture review's roadmap): memory-layer wiring, reconciliation's `CONFLICT` detection, automatic workspace cleanup, container/VM-level sandboxing beyond git isolation, and cancellation of an in-flight `runTests()` call specifically.

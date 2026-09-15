@@ -41,7 +41,11 @@ Response `201`: `{ "task": Task }` with `status: "created"`.
 
 ## `POST /tasks/:id/start`
 
-Begins asynchronous orchestration (inspect → route → analyze → reconcile → plan → implement → review → handoff). Returns `202` immediately with the task transitioning to `inspecting`; poll `GET /tasks/:id` or subscribe to `GET /tasks/:id/events` for progress. `409` if the task is not in the `created` state.
+Begins asynchronous orchestration (inspect → route → [prepare isolated workspace, real mode only] → analyze → reconcile → plan → implement → review → handoff). Returns `202` immediately with the task transitioning to `inspecting`; poll `GET /tasks/:id` or subscribe to `GET /tasks/:id/events` for progress. `409` if the task is not in the `created` state.
+
+## `POST /tasks/:id/cancel`
+
+Cancels a task that is not yet in a terminal state (`completed`, `failed`, `blocked`, `cancelled`). Marks the task `cancelled` immediately and, for real-mode tasks, kills any in-flight `claude` CLI process. Returns `200` with the updated task, or `409` if it's already terminal, or `404` if unknown. See [REAL_EXECUTION.md](REAL_EXECUTION.md#cancellation).
 
 ## `GET /tasks/:id/events`
 
@@ -51,7 +55,7 @@ Server-Sent Events stream. Replays full history on connect, then streams live ev
 { "id": "...", "taskId": "...", "type": "REPOSITORY_INSPECTION_COMPLETED", "message": "...", "data": { }, "createdAt": "..." }
 ```
 
-Event types: `TASK_CREATED`, `REPOSITORY_INSPECTION_STARTED`, `REPOSITORY_INSPECTION_COMPLETED`, `AGENT_SELECTED`, `AGENT_ANALYSIS_STARTED`, `AGENT_ANALYSIS_COMPLETED`, `RECONCILIATION_STARTED`, `RECONCILIATION_COMPLETED`, `IMPLEMENTATION_PLAN_CREATED`, `IMPLEMENTATION_STARTED`, `IMPLEMENTATION_COMPLETED`, `REVIEW_STARTED`, `REVIEW_COMPLETED`, `REVIEW_BLOCKING_ISSUE_FOUND`, `TASK_COMPLETED`, `TASK_FAILED`, `TASK_BLOCKED`.
+Event types: `TASK_CREATED`, `REPOSITORY_INSPECTION_STARTED`, `REPOSITORY_INSPECTION_COMPLETED`, `AGENT_SELECTED`, `WORKSPACE_PREPARED`, `WORKSPACE_PREPARATION_FAILED`, `AGENT_ANALYSIS_STARTED`, `AGENT_ANALYSIS_COMPLETED`, `RECONCILIATION_STARTED`, `RECONCILIATION_COMPLETED`, `IMPLEMENTATION_PLAN_CREATED`, `IMPLEMENTATION_STARTED`, `IMPLEMENTATION_COMPLETED`, `REVIEW_STARTED`, `REVIEW_COMPLETED`, `REVIEW_BLOCKING_ISSUE_FOUND`, `TASK_COMPLETED`, `TASK_FAILED`, `TASK_BLOCKED`, `TASK_CANCELLED`. `WORKSPACE_PREPARED`/`WORKSPACE_PREPARATION_FAILED` only ever fire for real-mode tasks.
 
 ## `GET /tasks/:id/agents`
 
@@ -84,6 +88,10 @@ Event types: `TASK_CREATED`, `REPOSITORY_INSPECTION_STARTED`, `REPOSITORY_INSPEC
 ## `GET /specialists`
 
 `{ "specialists": [{ "agent": "python-backend" | "node-backend" | "database", "label": string, "status": "available" }] }`
+
+## Real-execution-only fields
+
+For real-mode tasks, `Task.executionWorkspace` (`{ workspacePath, branch, baseRevision, status, createdAt, error? }`) and `ExecutionReport.diff` (`{ baseRevision, branch, files: [{ path, additions, deletions }], summary }`) / `ExecutionReport.durationMs` are populated once the corresponding pipeline stage runs. Both are `undefined` for mock-mode tasks. See [REAL_EXECUTION.md](REAL_EXECUTION.md).
 
 ---
 

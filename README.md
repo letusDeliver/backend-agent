@@ -9,7 +9,8 @@ Describe a requirement, point it at a real repository, and watch an orchestrator
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.x%20%2F%206.x-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![Express](https://img.shields.io/badge/Express-4.x-000000?logo=express&logoColor=white)](https://expressjs.com/)
 [![Angular](https://img.shields.io/badge/Angular-22-DD0031?logo=angular&logoColor=white)](https://angular.dev/)
-[![Tests](https://img.shields.io/badge/tests-56%20passing-33c481)](#testing)
+[![Tests](https://img.shields.io/badge/tests-85%20passing-33c481)](#testing)
+[![CI](https://github.com/letusDeliver/backend-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/letusDeliver/backend-agent/actions/workflows/ci.yml)
 
 </div>
 
@@ -44,7 +45,8 @@ Every stage is inspectable. Nothing is claimed that didn't actually happen.
 - ✓ **Artifact-first task workspaces** on disk (`tasks/<task-id>/`) — every specialist report, reconciliation, plan, execution report and review is a real inspectable file
 - ✓ **Dual execution modes** — a safe, deterministic **mock** executor by default, and a **real** executor that drives the actual Claude Code CLI, opt-in only, never disguised as the other
 - ✓ **Bounded review loop** — blocking findings return the task to implementation automatically, up to a configurable retry limit, instead of looping forever or completing regardless
-- ✓ **56 automated tests** across the routing engine, repository inspector, reconciliation logic, API, SSE stream, and a full end-to-end happy path
+- ✓ **85 automated tests** (72 backend + 13 frontend) across the routing engine, repository inspector, reconciliation logic, API, SSE stream, git-worktree isolation, real-executor hardening (timeout/cancellation/ground-truth diff), and full end-to-end happy paths — plus a committed browser E2E test and CI running all of it on every push
+- ✓ **Isolated real execution** — Claude Code runs against a dedicated git worktree/branch, never your live working tree, with a repository-safety guard, timeout, and mid-run cancellation
 
 ## Screens
 
@@ -97,25 +99,30 @@ docs/      Architecture, API, workflow, and project documentation
 | | Mock (default) | Real |
 |---|---|---|
 | Enabled by | nothing — this is the default | `CLAUDE_EXECUTION_MODE=real` |
-| Touches your repository? | Never | Yes, during implementation |
+| Touches your repository? | Never | Only an isolated git worktree/branch — your checked-out working tree is never modified |
 | Test evidence | Simulated, clearly labeled | Real — runs your repo's actual test command |
+| Cancellable mid-run? | N/A | Yes — kills the in-flight Claude Code process |
 | UI shows | 🟡 `MOCK / SIMULATED EXECUTION` | 🟢 `REAL EXECUTION` |
 
-The platform never disguises which mode produced a result. Real mode is opt-in on purpose — automatically modifying a repository from a UI button click is exactly the kind of action that deserves an explicit decision, not a default.
+The platform never disguises which mode produced a result. Real mode is opt-in on purpose — automatically modifying a repository from a UI button click is exactly the kind of action that deserves an explicit decision, not a default. When real mode is on, execution runs against an isolated git worktree on a dedicated branch (`agent/task-<id>`), never your live working tree, and changes are never auto-merged — see [docs/REAL_EXECUTION.md](docs/REAL_EXECUTION.md) for exactly how.
 
 ## Testing
 
 ```bash
-npm test              # everything (56 tests)
+npm test              # everything (85 tests)
 npm run test:server   # backend — vitest
 npm run test:web      # frontend — jest
+npm run test:e2e      # browser E2E — playwright, mock executor, headless
 ```
+
+CI runs all of the above on every push and pull request — see [.github/workflows/ci.yml](.github/workflows/ci.yml).
 
 ## Documentation
 
 | Doc | What's in it |
 |---|---|
 | [docs/MVP_ARCHITECTURE.md](docs/MVP_ARCHITECTURE.md) | System design, task state machine, routing matrix, execution layer, security |
+| [docs/REAL_EXECUTION.md](docs/REAL_EXECUTION.md) | How real execution's git-worktree isolation, safety guard, timeout, cancellation and cleanup actually work |
 | [docs/API.md](docs/API.md) | Full REST + SSE API reference |
 | [docs/AGENT_WORKFLOW.md](docs/AGENT_WORKFLOW.md) | How specialists, reconciliation and review actually work |
 | [docs/LOCAL_DEVELOPMENT.md](docs/LOCAL_DEVELOPMENT.md) | Environment variables, setup, troubleshooting |
