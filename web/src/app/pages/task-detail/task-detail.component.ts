@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, OnDestroy, OnInit } from '@angular/core';
+import { Component, OnDestroy, OnInit, computed, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { Subject, takeUntil } from 'rxjs';
@@ -42,24 +42,31 @@ const ALL_AGENTS: AgentType[] = ['python-backend', 'node-backend', 'database'];
     imports: [CommonModule, RouterLink],
     templateUrl: './task-detail.component.html',
     styleUrl: './task-detail.component.css',
-    changeDetection: ChangeDetectionStrategy.Default
 })
 export class TaskDetailComponent implements OnInit, OnDestroy {
   readonly allAgents = ALL_AGENTS;
   readonly agentLabels = AGENT_LABELS;
+  readonly stages = STAGE_SEQUENCE;
 
-  task: Task | null = null;
-  events: TaskEvent[] = [];
-  specialistReports: SpecialistReport[] = [];
-  reconciliation: Reconciliation | null = null;
-  plan: ImplementationPlan | null = null;
-  executionReport: ExecutionReport | null = null;
-  reviews: ReviewReport[] = [];
-  handoff: FinalHandoff | null = null;
-  handoffMarkdown: string | null = null;
-  loading = true;
-  notFound = false;
-  showActivityLog = false;
+  readonly task = signal<Task | null>(null);
+  readonly events = signal<TaskEvent[]>([]);
+  readonly specialistReports = signal<SpecialistReport[]>([]);
+  readonly reconciliation = signal<Reconciliation | null>(null);
+  readonly plan = signal<ImplementationPlan | null>(null);
+  readonly executionReport = signal<ExecutionReport | null>(null);
+  readonly reviews = signal<ReviewReport[]>([]);
+  readonly handoff = signal<FinalHandoff | null>(null);
+  readonly handoffMarkdown = signal<string | null>(null);
+  readonly loading = signal(true);
+  readonly notFound = signal(false);
+  readonly showActivityLog = signal(false);
+
+  readonly blockingFindingsCount = computed(
+    () => this.reviews().flatMap((r) => r.findings.filter((f) => f.severity === 'blocking')).length
+  );
+  readonly warningFindingsCount = computed(
+    () => this.reviews().flatMap((r) => r.findings.filter((f) => f.severity === 'warning')).length
+  );
 
   private readonly destroyed$ = new Subject<void>();
   private taskId = '';
@@ -72,8 +79,8 @@ export class TaskDetailComponent implements OnInit, OnDestroy {
   ngOnInit(): void {
     this.taskId = this.route.snapshot.paramMap.get('id') ?? '';
     if (!this.taskId) {
-      this.notFound = true;
-      this.loading = false;
+      this.notFound.set(true);
+      this.loading.set(false);
       return;
     }
     this.loadTask();
@@ -91,74 +98,71 @@ export class TaskDetailComponent implements OnInit, OnDestroy {
   private loadTask(): void {
     this.taskService.getTask(this.taskId).subscribe({
       next: ({ task }) => {
-        this.task = task;
-        this.loading = false;
+        this.task.set(task);
+        this.loading.set(false);
         this.refreshPanelsFor(task);
       },
       error: () => {
-        this.notFound = true;
-        this.loading = false;
+        this.notFound.set(true);
+        this.loading.set(false);
       },
     });
   }
 
   private onEvent(event: TaskEvent): void {
-    this.events = [...this.events, event];
+    this.events.update((events) => [...events, event]);
     this.loadTask();
   }
 
   private refreshPanelsFor(task: Task): void {
     if (task.status === 'created' || task.status === 'inspecting') return;
 
-    this.taskService.getAgents(task.id).subscribe(({ reports }) => (this.specialistReports = reports));
+    this.taskService.getAgents(task.id).subscribe(({ reports }) => this.specialistReports.set(reports));
 
     if (['reconciling', 'planning', 'implementing', 'reviewing', 'completed', 'blocked'].includes(task.status)) {
-      this.taskService.getReconciliation(task.id).subscribe(({ reconciliation }) => (this.reconciliation = reconciliation));
+      this.taskService.getReconciliation(task.id).subscribe(({ reconciliation }) => this.reconciliation.set(reconciliation));
     }
     if (['planning', 'implementing', 'reviewing', 'completed', 'blocked'].includes(task.status)) {
-      this.taskService.getImplementationPlan(task.id).subscribe(({ plan }) => (this.plan = plan));
+      this.taskService.getImplementationPlan(task.id).subscribe(({ plan }) => this.plan.set(plan));
     }
     if (['implementing', 'reviewing', 'completed', 'blocked'].includes(task.status)) {
-      this.taskService.getExecutionReport(task.id).subscribe(({ report }) => (this.executionReport = report));
+      this.taskService.getExecutionReport(task.id).subscribe(({ report }) => this.executionReport.set(report));
     }
     if (['reviewing', 'completed', 'blocked'].includes(task.status)) {
-      this.taskService.getReviews(task.id).subscribe(({ reviews }) => (this.reviews = reviews));
+      this.taskService.getReviews(task.id).subscribe(({ reviews }) => this.reviews.set(reviews));
     }
     if (task.status === 'completed') {
       this.taskService.getHandoff(task.id).subscribe(({ handoff, markdown }) => {
-        this.handoff = handoff;
-        this.handoffMarkdown = markdown;
+        this.handoff.set(handoff);
+        this.handoffMarkdown.set(markdown);
       });
     }
   }
 
   stageState(stage: StageDef): StageState {
-    if (!this.task) return 'pending';
+    const task = this.task();
+    if (!task) return 'pending';
     const sequenceIndex = STAGE_SEQUENCE.findIndex((s) => s.key === stage.key);
-    const currentIndex = STAGE_SEQUENCE.findIndex((s) => s.key === this.task!.status);
+    const currentIndex = STAGE_SEQUENCE.findIndex((s) => s.key === task.status);
 
-    if (this.task.status === 'failed' || this.task.status === 'blocked') {
-      const reachedIndex = STAGE_SEQUENCE.findIndex((s) => s.key === this.task!.currentStage);
+    if (task.status === 'failed' || task.status === 'blocked') {
+      const reachedIndex = STAGE_SEQUENCE.findIndex((s) => s.key === task.currentStage);
       if (sequenceIndex < reachedIndex) return 'done';
       if (sequenceIndex === reachedIndex) return 'blocked';
       return 'pending';
     }
 
     if (sequenceIndex < currentIndex) return 'done';
-    if (sequenceIndex === currentIndex) return this.task.status === 'completed' ? 'done' : 'active';
+    if (sequenceIndex === currentIndex) return task.status === 'completed' ? 'done' : 'active';
     return 'pending';
   }
 
-  get stages(): StageDef[] {
-    return STAGE_SEQUENCE;
-  }
-
   specialistFor(agent: AgentType): SpecialistReport | undefined {
-    return this.specialistReports.find((r) => r.agent === agent);
+    return this.specialistReports().find((r) => r.agent === agent);
   }
 
   reviewFor(agent: AgentType): ReviewReport | undefined {
-    return this.reviews.find((r) => r.agent === agent);
+    return this.reviews().find((r) => r.agent === agent);
   }
 
   ownerLabel(owner: AgentType | 'orchestrator'): string {
@@ -166,18 +170,10 @@ export class TaskDetailComponent implements OnInit, OnDestroy {
   }
 
   isFileChanged(path: string): boolean {
-    return this.executionReport?.changedFiles.includes(path) ?? false;
-  }
-
-  get blockingFindingsCount(): number {
-    return this.reviews.flatMap((r) => r.findings.filter((f) => f.severity === 'blocking')).length;
-  }
-
-  get warningFindingsCount(): number {
-    return this.reviews.flatMap((r) => r.findings.filter((f) => f.severity === 'warning')).length;
+    return this.executionReport()?.changedFiles.includes(path) ?? false;
   }
 
   toggleActivityLog(): void {
-    this.showActivityLog = !this.showActivityLog;
+    this.showActivityLog.update((v) => !v);
   }
 }

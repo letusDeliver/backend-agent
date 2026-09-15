@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
+import { Component, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { Router } from '@angular/router';
@@ -10,13 +10,12 @@ import { TaskService } from '../../services/task.service';
     imports: [CommonModule, ReactiveFormsModule],
     templateUrl: './create-task.component.html',
     styleUrl: './create-task.component.css',
-    changeDetection: ChangeDetectionStrategy.Default
 })
 export class CreateTaskComponent {
   private readonly fb = inject(FormBuilder);
 
-  submitting = false;
-  error = '';
+  readonly submitting = signal(false);
+  readonly error = signal('');
 
   form = this.fb.group({
     title: [''],
@@ -33,12 +32,12 @@ export class CreateTaskComponent {
   ) {}
 
   submit(): void {
-    if (this.form.invalid || this.submitting) {
+    if (this.form.invalid || this.submitting()) {
       this.form.markAllAsTouched();
       return;
     }
-    this.submitting = true;
-    this.error = '';
+    this.submitting.set(true);
+    this.error.set('');
     const value = this.form.getRawValue();
 
     this.taskService
@@ -54,8 +53,8 @@ export class CreateTaskComponent {
       .subscribe({
         next: (task) => this.router.navigate(['/tasks', task.id]),
         error: (err) => {
-          this.submitting = false;
-          this.error = err?.error?.error?.message ?? 'Could not create the task. Check the repository path and try again.';
+          this.submitting.set(false);
+          this.error.set(err?.error?.error?.message ?? 'Could not create the task. Check the repository path and try again.');
         },
       });
   }

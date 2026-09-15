@@ -74,7 +74,7 @@ See [docs/LOCAL_DEVELOPMENT.md](docs/LOCAL_DEVELOPMENT.md) for environment varia
 
 | Layer | Choice |
 |---|---|
-| Frontend | Angular 22 (standalone components, zone.js), TypeScript |
+| Frontend | Angular 22 (standalone components, signals, zoneless change detection), TypeScript |
 | Backend | Node.js, Express, TypeScript |
 | Storage | JSON-file task store behind a swappable `TaskStore` interface (Postgres-ready) |
 | Realtime | Server-Sent Events |

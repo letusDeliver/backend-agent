@@ -1,11 +1,11 @@
 <h1 class="page-title">Backend Engineering AI</h1>
 <p class="page-subtitle">Orchestration control center — routing, specialists and evidence-backed handoffs.</p>
 
-@if (error) {
-  <div class="card error-card">{{ error }}</div>
+@if (error(); as errorMessage) {
+  <div class="card error-card">{{ errorMessage }}</div>
 }
 
-@if (!loading && stats) {
+@if (!loading() && stats(); as stats) {
   <div class="stat-row">
     <div class="stat-card">
       <span class="stat-value">{{ stats.active }}</span>
@@ -27,7 +27,7 @@
 
   <h2 class="section-heading">Specialists</h2>
   <div class="specialist-row">
-    @for (s of specialists; track s.agent) {
+    @for (s of specialists(); track s.agent) {
       <div class="specialist-chip">
         <span class="dot"></span>
         {{ s.label }}
@@ -37,10 +37,10 @@
 
   <h2 class="section-heading">Recent Tasks</h2>
   <div class="card task-list">
-    @if (recentTasks.length === 0) {
+    @if (recentTasks().length === 0) {
       <div class="empty-state">No tasks yet. Start one with "+ New Backend Task".</div>
     }
-    @for (task of recentTasks; track task.id) {
+    @for (task of recentTasks(); track task.id) {
       <a class="task-row" [routerLink]="['/tasks', task.id]">
         <span class="task-title">{{ task.title }}</span>
         <span class="task-meta">
