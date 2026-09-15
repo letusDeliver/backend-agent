@@ -9,11 +9,15 @@ import { inspectRepository } from "./repositoryInspector.js";
 import { routeTask } from "./routingEngine.js";
 import { reconcile } from "./reconciliation.js";
 import { buildImplementationPlan } from "./implementationPlan.js";
+import { buildContextPack, memoryForAgent, type ContextPack } from "../memory/contextPack.js";
+import { generateCandidateLessons } from "../memory/candidateLessons.js";
+import type { MemoryStore } from "../memory/types.js";
 import type {
   AgentType,
   ExecutionReport,
   FinalHandoff,
   ImplementationPlan,
+  Reconciliation,
   ReviewReport,
   SpecialistReport,
   Task,
@@ -32,7 +36,8 @@ export class TaskOrchestrator {
     private readonly artifacts: ArtifactStore,
     private readonly events: TaskEventBus,
     private readonly executor: ClaudeCodeExecutor,
-    private readonly worktrees: GitWorktreeManager
+    private readonly worktrees: GitWorktreeManager,
+    private readonly memory: MemoryStore
   ) {}
 
   async run(taskId: string): Promise<void> {
@@ -75,7 +80,11 @@ export class TaskOrchestrator {
 
       if (await this.isCancelled(taskId)) return;
 
-      const reports = await this.analyze(task, routing.agents);
+      const contextPack = await this.retrieveMemory(task, routing.agents);
+
+      if (await this.isCancelled(taskId)) return;
+
+      const reports = await this.analyze(task, routing.agents, contextPack);
 
       if (await this.isCancelled(taskId)) return;
 
@@ -218,7 +227,32 @@ export class TaskOrchestrator {
     }
   }
 
-  private async analyze(task: Task, agents: AgentType[]): Promise<SpecialistReport[]> {
+  /**
+   * ORCHESTRATOR.md responsibility #3 ("Retrieve relevant memory/context"),
+   * unimplemented until Phase 29. Runs after routing (task scope is known)
+   * and before specialist analysis. Only validated memory can ever come
+   * back from buildContextPack -> memoryStore.retrieve(); repository
+   * evidence conflicts are flagged, never silently overridden.
+   */
+  private async retrieveMemory(task: Task, agents: AgentType[]): Promise<ContextPack> {
+    const pack = await buildContextPack(task, task.detectedStack!, this.memory);
+    await this.artifacts.writeMemoryRetrieval(pack);
+    await this.events.publish(
+      task.id,
+      "MEMORY_RETRIEVED",
+      `Retrieved ${pack.retrievedCount} memory item(s), included ${pack.includedCount}.`,
+      {
+        retrievedCount: pack.retrievedCount,
+        includedCount: pack.includedCount,
+        excludedCount: pack.excludedCount,
+        conflicts: pack.conflicts,
+        agentsToReceiveContext: agents,
+      }
+    );
+    return pack;
+  }
+
+  private async analyze(task: Task, agents: AgentType[], contextPack: ContextPack): Promise<SpecialistReport[]> {
     task = await this.setStage(task, "analyzing", "analyzing");
     await this.events.publish(task.id, "AGENT_ANALYSIS_STARTED", `Specialists analyzing: ${agents.map((a) => AGENT_LABELS[a]).join(", ")}`);
 
@@ -231,6 +265,7 @@ export class TaskOrchestrator {
           detectedStack: task.detectedStack!,
           specialistContract: contract,
           question: buildAnalysisQuestion(agent, task),
+          memoryContext: memoryForAgent(agent, contextPack),
         });
         await this.artifacts.writeSpecialistReport(report);
         return report;
@@ -357,7 +392,28 @@ export class TaskOrchestrator {
     task.currentStage = "completed";
     task = await this.persist(task);
     await this.events.publish(task.id, "TASK_COMPLETED", "Task completed. Final handoff generated.", { handoff });
+
+    await this.generateCandidateLessons(task, reconciliation);
     return task;
+  }
+
+  /**
+   * Only ever runs for a completed task (Phase 29 brief section 14) — never
+   * blocked/failed. Candidates are stored with validationStatus "candidate"
+   * and never influence retrieval until a human approves them via the
+   * memory API; 0 lessons generated is an expected, valid outcome.
+   */
+  private async generateCandidateLessons(task: Task, reconciliation: Reconciliation | null): Promise<void> {
+    const candidates = generateCandidateLessons(task, reconciliation, task.detectedStack!);
+    for (const candidate of candidates) {
+      await this.memory.add(candidate);
+    }
+    await this.events.publish(
+      task.id,
+      "CANDIDATE_LESSONS_GENERATED",
+      `${candidates.length} candidate lesson(s) generated for developer review.`,
+      { count: candidates.length, ids: candidates.map((c) => c.id) }
+    );
   }
 }
 

@@ -4,6 +4,7 @@ import { healthRouter } from "./routes/health.js";
 import { tasksRouter } from "./routes/tasks.js";
 import { specialistsRouter } from "./routes/specialists.js";
 import { statsRouter } from "./routes/stats.js";
+import { memoryRouter } from "./routes/memory.js";
 import { errorHandler, notFoundHandler } from "./middleware/errorHandler.js";
 
 export function createApp() {
@@ -15,6 +16,7 @@ export function createApp() {
   app.use("/api", tasksRouter);
   app.use("/api", specialistsRouter);
   app.use("/api", statsRouter);
+  app.use("/api", memoryRouter);
 
   app.use(notFoundHandler);
   app.use(errorHandler);

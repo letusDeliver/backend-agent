@@ -13,6 +13,7 @@ import type {
   Task,
   TaskEvent,
 } from "../types/index.js";
+import type { ContextPack } from "../memory/contextPack.js";
 
 /**
  * Reads and writes the task workspace exactly as laid out in
@@ -163,6 +164,14 @@ export class ArtifactStore {
       if ((err as NodeJS.ErrnoException).code === "ENOENT") return [];
       throw err;
     }
+  }
+
+  writeMemoryRetrieval(pack: ContextPack): Promise<void> {
+    return this.writeJson(pack.taskId, "context/memory-retrieval.json", pack);
+  }
+
+  readMemoryRetrieval(taskId: string): Promise<ContextPack | null> {
+    return this.readJson<ContextPack>(taskId, "context/memory-retrieval.json");
   }
 
   async writeContextSnapshot(taskId: string, filename: string, content: string): Promise<void> {

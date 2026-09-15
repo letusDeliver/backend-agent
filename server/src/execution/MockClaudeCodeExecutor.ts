@@ -17,7 +17,7 @@ import type { ExecutionReport, ReviewReport, SpecialistReport, TestRunResult } f
 export class MockClaudeCodeExecutor implements ClaudeCodeExecutor {
   readonly mode = "mock" as const;
 
-  async analyze({ agent, task, detectedStack }: AnalyzeParams): Promise<SpecialistReport> {
+  async analyze({ agent, task, detectedStack, memoryContext }: AnalyzeParams): Promise<SpecialistReport> {
     const evidenceSample = detectedStack.evidence.slice(0, 3);
     const findings = [
       {
@@ -58,6 +58,13 @@ export class MockClaudeCodeExecutor implements ClaudeCodeExecutor {
       ],
       assumptions: [
         "MOCK / SIMULATED EXECUTION: this report was generated heuristically and was not produced by a live Claude Code session.",
+        ...(memoryContext.length > 0
+          ? [
+              `Incorporated ${memoryContext.length} relevant validated memory item(s): ${memoryContext
+                .map((m) => m.summary)
+                .join(" | ")}`,
+            ]
+          : []),
       ],
       confidence: 0.7,
       executionMode: "mock",

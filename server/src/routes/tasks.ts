@@ -215,6 +215,17 @@ tasksRouter.get("/tasks/:id/reviews", async (req, res, next) => {
   }
 });
 
+tasksRouter.get("/tasks/:id/memory", async (req, res, next) => {
+  try {
+    const task = await taskStore.get(req.params.id);
+    if (!task) throw new ApiError(404, "Task not found.");
+    const contextPack = await artifactStore.readMemoryRetrieval(task.id);
+    res.json({ contextPack });
+  } catch (err) {
+    next(err);
+  }
+});
+
 tasksRouter.get("/tasks/:id/handoff", async (req, res, next) => {
   try {
     const task = await taskStore.get(req.params.id);

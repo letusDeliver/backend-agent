@@ -12,4 +12,4 @@ export const eventBus = new TaskEventBus(artifactStore);
 export const gitWorktrees = new GitWorktreeManager();
 export const executor = createExecutor(gitWorktrees);
 export const memoryStore = new JsonFileMemoryStore(config.dataDir);
-export const orchestrator = new TaskOrchestrator(taskStore, artifactStore, eventBus, executor, gitWorktrees);
+export const orchestrator = new TaskOrchestrator(taskStore, artifactStore, eventBus, executor, gitWorktrees, memoryStore);

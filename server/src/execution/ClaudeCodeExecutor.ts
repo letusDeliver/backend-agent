@@ -9,6 +9,7 @@ import type {
   Task,
   TestRunResult,
 } from "../types/index.js";
+import type { ContextPackEntry } from "../memory/contextPack.js";
 
 export interface AnalyzeParams {
   agent: AgentType;
@@ -16,6 +17,14 @@ export interface AnalyzeParams {
   detectedStack: DetectedStack;
   specialistContract: string;
   question: string;
+  /**
+   * Validated engineering memory relevant to this agent, already filtered
+   * by relevance and technology (see memory/contextPack.ts). Never contains
+   * candidate/unapproved lessons — retrieve() itself enforces that. May be
+   * empty; specialists must still weigh current repository evidence above
+   * this (Phase 29 brief section 11).
+   */
+  memoryContext: ContextPackEntry[];
 }
 
 export interface ImplementParams {

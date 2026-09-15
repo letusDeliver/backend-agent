@@ -151,7 +151,7 @@ export class RealClaudeCodeExecutor implements ClaudeCodeExecutor {
     return JSON.parse(candidate.slice(start, end + 1)) as T;
   }
 
-  async analyze({ agent, task, detectedStack, specialistContract, question }: AnalyzeParams): Promise<SpecialistReport> {
+  async analyze({ agent, task, detectedStack, specialistContract, question, memoryContext }: AnalyzeParams): Promise<SpecialistReport> {
     const prompt = [
       `You are acting as the ${agent} specialist under this contract:`,
       specialistContract,
@@ -161,6 +161,13 @@ export class RealClaudeCodeExecutor implements ClaudeCodeExecutor {
       `Detected stack: ${JSON.stringify(detectedStack)}`,
       `Specific question from the orchestrator: ${question}`,
       "",
+      ...(memoryContext.length > 0
+        ? [
+            "Relevant validated engineering memory (human-approved, from prior tasks — current repository evidence always takes precedence if it conflicts with any of this):",
+            ...memoryContext.map((m) => `- ${m.summary}`),
+            "",
+          ]
+        : []),
       "Inspect the repository at the current working directory as needed (read-only — do not modify files).",
       "Respond with ONLY a JSON object of this exact shape, no prose outside it:",
       '{"recommendation": string, "findings": [{"summary": string, "evidence": string}], "risks": [{"summary": string, "severity": "low"|"medium"|"high"}], "assumptions": string[], "confidence": number between 0 and 1}',
