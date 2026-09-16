@@ -3,6 +3,7 @@ import { exec as execCb } from "node:child_process";
 import { promisify } from "node:util";
 import { config } from "../config.js";
 import { GitWorktreeManager } from "./gitWorktree.js";
+import { buildClaudeEnvironment } from "./claudeEnvironment.js";
 import type {
   ClaudeCodeExecutor,
   AnalyzeParams,
@@ -88,7 +89,9 @@ export class RealClaudeCodeExecutor implements ClaudeCodeExecutor {
     return new Promise((resolve, reject) => {
       const args = ["-p", prompt, "--output-format", "json", "--permission-mode", permissionMode, "--add-dir", cwd];
       const startedAt = Date.now();
-      const child = spawn(config.claudeCliPath, args, { cwd, timeout: config.claudeTimeoutMs });
+      // Phase 35: an explicit environment allow-list, not the full parent
+      // process environment — see claudeEnvironment.ts.
+      const child = spawn(config.claudeCliPath, args, { cwd, timeout: config.claudeTimeoutMs, env: buildClaudeEnvironment() });
       this.track(taskId, child);
 
       let stdout = "";
@@ -287,9 +290,13 @@ export class RealClaudeCodeExecutor implements ClaudeCodeExecutor {
     }
     try {
       const cwd = this.workspaceOf(task);
+      // Phase 35: same explicit environment allow-list as the claude CLI
+      // subprocess above — the test command runs inside the same untrusted
+      // repository and should see no more of the server's own environment.
       const { stdout } = await exec(detectedStack.testCommand, {
         cwd,
         timeout: config.claudeTimeoutMs,
+        env: buildClaudeEnvironment(),
       });
       const passedMatch = stdout.match(/(\d+)\s+passed/i);
       const failedMatch = stdout.match(/(\d+)\s+failed/i);

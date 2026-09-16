@@ -23,4 +23,20 @@ export const config = {
   // diff larger than this is truncated at a file boundary, never dropped
   // silently (see GitWorktreeManager.diff()).
   maxDiffPatchChars: Number(process.env.MAX_DIFF_PATCH_CHARS ?? 200_000),
+  // Explicit allow-list of environment variable names forwarded to the
+  // `claude` CLI subprocess and to `runTests()`'s test-command subprocess
+  // (Phase 35) — the full parent process environment (which may hold
+  // secrets unrelated to either) is never inherited by default. Verified
+  // empirically against the real `claude` CLI: PATH/HOME/USER/LOGNAME are
+  // the minimum required for it to locate and authenticate with its stored
+  // credentials on this platform; SHELL/LANG/LC_ALL/TERM/TMPDIR are
+  // additional non-secret values commonly relied on for locale-correct
+  // output and temp-file placement, included defensively for portability
+  // across machines/OSes (see docs/PHASE_35_COMPLETION_REPORT.md).
+  claudeSubprocessEnvAllowList: (
+    process.env.CLAUDE_SUBPROCESS_ENV_ALLOWLIST ?? "PATH,HOME,USER,LOGNAME,SHELL,LANG,LC_ALL,TERM,TMPDIR"
+  )
+    .split(",")
+    .map((k) => k.trim())
+    .filter(Boolean),
 };

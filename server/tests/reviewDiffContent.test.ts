@@ -18,11 +18,17 @@ async function git(args: string[], cwd: string): Promise<string> {
  * Same fake-CLI convention as realExecution.test.ts, extended (Phase 33) so
  * it (a) writes multi-line, distinctively-markered content during
  * implement() so there's genuine patch content to thread through review,
- * and (b) logs every prompt it receives (via FAKE_CLI_PROMPT_LOG) so this
- * suite can assert on the *actual* review prompt content, not just on the
- * pipeline's final status.
+ * and (b) logs every prompt it receives so this suite can assert on the
+ * *actual* review prompt content, not just on the pipeline's final status.
+ *
+ * The log path is baked directly into the generated script text (rather
+ * than read from an environment variable at runtime) because Phase 35's
+ * subprocess environment allow-list means the fake CLI process no longer
+ * inherits arbitrary test-plumbing environment variables any more than a
+ * real one would — see claudeEnvironment.ts.
  */
-const FAKE_CLI_SOURCE = `#!/usr/bin/env node
+function buildFakeCliSource(promptLogPath: string): string {
+  return `#!/usr/bin/env node
 import { writeFileSync, appendFileSync } from "node:fs";
 
 const args = process.argv.slice(2);
@@ -31,9 +37,7 @@ const mode = modeIndex >= 0 ? args[modeIndex + 1] : "";
 const promptIndex = args.indexOf("-p");
 const prompt = promptIndex >= 0 ? args[promptIndex + 1] : "";
 
-if (process.env.FAKE_CLI_PROMPT_LOG) {
-  appendFileSync(process.env.FAKE_CLI_PROMPT_LOG, prompt + "\\n<<<PROMPT-BOUNDARY>>>\\n");
-}
+appendFileSync(${JSON.stringify(promptLogPath)}, prompt + "\\n<<<PROMPT-BOUNDARY>>>\\n");
 
 let payload;
 if (mode === "acceptEdits") {
@@ -52,6 +56,7 @@ if (mode === "acceptEdits") {
 
 process.stdout.write(JSON.stringify({ result: "\`\`\`json\\n" + JSON.stringify(payload) + "\\n\`\`\`" }));
 `;
+}
 
 let app: Express;
 let dataDir: string;
@@ -70,21 +75,20 @@ beforeAll(async () => {
   await git(["-c", "user.email=test@example.com", "-c", "user.name=Test", "add", "-A"], repoDir);
   await git(["-c", "user.email=test@example.com", "-c", "user.name=Test", "commit", "-m", "initial"], repoDir);
 
-  const fakeCliDir = await mkdtemp(path.join(tmpdir(), "diffreview-fake-cli-"));
-  fakeCliPath = path.join(fakeCliDir, "fake-claude.mjs");
-  await writeFile(fakeCliPath, FAKE_CLI_SOURCE, "utf-8");
-  await chmod(fakeCliPath, 0o755);
-
   const logDir = await mkdtemp(path.join(tmpdir(), "diffreview-log-"));
   promptLogPath = path.join(logDir, "prompts.log");
   await writeFile(promptLogPath, "", "utf-8");
+
+  const fakeCliDir = await mkdtemp(path.join(tmpdir(), "diffreview-fake-cli-"));
+  fakeCliPath = path.join(fakeCliDir, "fake-claude.mjs");
+  await writeFile(fakeCliPath, buildFakeCliSource(promptLogPath), "utf-8");
+  await chmod(fakeCliPath, 0o755);
 
   process.env.DATA_DIR = dataDir;
   process.env.TASKS_DIR = tasksDir;
   process.env.CLAUDE_EXECUTION_MODE = "real";
   process.env.CLAUDE_CLI_PATH = fakeCliPath;
   process.env.CLAUDE_TIMEOUT_MS = "10000";
-  process.env.FAKE_CLI_PROMPT_LOG = promptLogPath;
 
   // Dynamic import evaluated only now that env vars above are set — see
   // realExecution.test.ts for why a static top-level import would freeze
@@ -97,7 +101,6 @@ afterAll(async () => {
   await rm(dataDir, { recursive: true, force: true });
   await rm(tasksDir, { recursive: true, force: true });
   await rm(repoDir, { recursive: true, force: true });
-  delete process.env.FAKE_CLI_PROMPT_LOG;
 });
 
 async function waitForTerminal(taskId: string, timeoutMs = 15000): Promise<any> {

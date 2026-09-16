@@ -15,32 +15,31 @@ async function git(args: string[], cwd: string): Promise<string> {
 }
 
 /**
- * Writes a large, multi-line file — large enough to exceed the small
- * MAX_DIFF_PATCH_CHARS this suite configures below — and logs every prompt
- * it receives (Phase 33), same convention as reviewDiffContent.test.ts.
+ * Drives the real `spawn()` call inside `RealClaudeCodeExecutor.runClaudeCli`
+ * (Phase 35's actual production code path, not a mocked/reimplemented
+ * version of it) by pointing CLAUDE_CLI_PATH at a fake CLI that reports back
+ * exactly what environment it was actually started with — proving the
+ * allow-list is applied where it matters, not merely that the helper
+ * function returns the right object in isolation (see claudeEnvironment.test.ts
+ * for that unit-level coverage).
  *
- * The log path is baked directly into the generated script text (rather
- * than read from an environment variable at runtime) because Phase 35's
- * subprocess environment allow-list means the fake CLI process no longer
- * inherits arbitrary test-plumbing environment variables any more than a
- * real one would — see claudeEnvironment.ts.
+ * The log path is baked directly into the generated script text — reading it
+ * from an environment variable at runtime would only prove the allow-list
+ * lets that specific variable through, which defeats the point of the test.
  */
-function buildFakeCliSource(promptLogPath: string): string {
+function buildFakeCliSource(envLogPath: string): string {
   return `#!/usr/bin/env node
-import { writeFileSync, appendFileSync } from "node:fs";
+import { writeFileSync } from "node:fs";
 
 const args = process.argv.slice(2);
 const modeIndex = args.indexOf("--permission-mode");
 const mode = modeIndex >= 0 ? args[modeIndex + 1] : "";
-const promptIndex = args.indexOf("-p");
-const prompt = promptIndex >= 0 ? args[promptIndex + 1] : "";
 
-appendFileSync(${JSON.stringify(promptLogPath)}, prompt + "\\n<<<PROMPT-BOUNDARY>>>\\n");
+writeFileSync(${JSON.stringify(envLogPath)}, JSON.stringify(process.env), "utf-8");
 
 let payload;
 if (mode === "acceptEdits") {
-  const lines = Array.from({ length: 200 }, (_, i) => \`generated filler content line \${i}\`).join("\\n");
-  writeFileSync("generated-by-agent.txt", lines + "\\n");
+  writeFileSync("generated-by-agent.txt", "phase 35 subprocess-env fixture\\n");
   payload = { changedFiles: ["generated-by-agent.txt"], commandsExecuted: [], notes: ["fake implement"] };
 } else {
   payload = {
@@ -62,36 +61,43 @@ let dataDir: string;
 let tasksDir: string;
 let repoDir: string;
 let fakeCliPath: string;
-let promptLogPath: string;
+let envLogPath: string;
 
-const MAX_DIFF_PATCH_CHARS = "200";
+const SENTINEL_KEY = "PHASE35_UNRELATED_SECRET";
+const SENTINEL_VALUE = "should-never-reach-the-claude-subprocess";
 
 beforeAll(async () => {
-  dataDir = await mkdtemp(path.join(tmpdir(), "diffreview-trunc-data-"));
-  tasksDir = await mkdtemp(path.join(tmpdir(), "diffreview-trunc-tasks-"));
-  repoDir = await mkdtemp(path.join(tmpdir(), "diffreview-trunc-repo-"));
+  dataDir = await mkdtemp(path.join(tmpdir(), "subenv-data-"));
+  tasksDir = await mkdtemp(path.join(tmpdir(), "subenv-tasks-"));
+  repoDir = await mkdtemp(path.join(tmpdir(), "subenv-repo-"));
 
   await writeFile(path.join(repoDir, "package.json"), JSON.stringify({ scripts: {} }));
   await git(["init", "-b", "main"], repoDir);
   await git(["-c", "user.email=test@example.com", "-c", "user.name=Test", "add", "-A"], repoDir);
   await git(["-c", "user.email=test@example.com", "-c", "user.name=Test", "commit", "-m", "initial"], repoDir);
 
-  const logDir = await mkdtemp(path.join(tmpdir(), "diffreview-trunc-log-"));
-  promptLogPath = path.join(logDir, "prompts.log");
-  await writeFile(promptLogPath, "", "utf-8");
+  const logDir = await mkdtemp(path.join(tmpdir(), "subenv-log-"));
+  envLogPath = path.join(logDir, "env.json");
 
-  const fakeCliDir = await mkdtemp(path.join(tmpdir(), "diffreview-trunc-fake-cli-"));
+  const fakeCliDir = await mkdtemp(path.join(tmpdir(), "subenv-fake-cli-"));
   fakeCliPath = path.join(fakeCliDir, "fake-claude.mjs");
-  await writeFile(fakeCliPath, buildFakeCliSource(promptLogPath), "utf-8");
+  await writeFile(fakeCliPath, buildFakeCliSource(envLogPath), "utf-8");
   await chmod(fakeCliPath, 0o755);
+
+  // A stand-in for a real secret that happens to be present in the server's
+  // own process environment (e.g. an unrelated API key) but has no business
+  // reaching a subprocess that operates inside a developer's repository.
+  process.env[SENTINEL_KEY] = SENTINEL_VALUE;
 
   process.env.DATA_DIR = dataDir;
   process.env.TASKS_DIR = tasksDir;
   process.env.CLAUDE_EXECUTION_MODE = "real";
   process.env.CLAUDE_CLI_PATH = fakeCliPath;
   process.env.CLAUDE_TIMEOUT_MS = "10000";
-  process.env.MAX_DIFF_PATCH_CHARS = MAX_DIFF_PATCH_CHARS;
 
+  // Dynamic import evaluated only now that env vars above are set — see
+  // realExecution.test.ts for why a static top-level import would freeze
+  // config prematurely.
   const { createApp } = await import("../src/app.js");
   app = createApp();
 });
@@ -100,7 +106,7 @@ afterAll(async () => {
   await rm(dataDir, { recursive: true, force: true });
   await rm(tasksDir, { recursive: true, force: true });
   await rm(repoDir, { recursive: true, force: true });
-  delete process.env.MAX_DIFF_PATCH_CHARS;
+  delete process.env[SENTINEL_KEY];
 });
 
 async function waitForTerminal(taskId: string, timeoutMs = 15000): Promise<any> {
@@ -115,8 +121,8 @@ async function waitForTerminal(taskId: string, timeoutMs = 15000): Promise<any> 
   return task;
 }
 
-describe("Truncated diffs are explicit end to end (Phase 33)", () => {
-  it("bounds the stored patch and warns the reviewer it is incomplete, rather than silently truncating", async () => {
+describe("claude subprocess environment allow-list (Phase 35)", () => {
+  it("never forwards an unrelated variable present in the server's own environment, while still forwarding PATH", async () => {
     const createRes = await request(app)
       .post("/api/tasks")
       .send({ title: "Add a health route", requirement: "Add a GET /health endpoint.", repository: repoDir });
@@ -127,24 +133,9 @@ describe("Truncated diffs are explicit end to end (Phase 33)", () => {
     const task = await waitForTerminal(taskId);
     expect(task.status).toBe("completed");
 
-    const reportRes = await request(app).get(`/api/tasks/${taskId}/execution-report`);
-    const diff = reportRes.body.report.diff;
-    expect(diff.truncated).toBe(true);
-    expect(diff.patch.length).toBeLessThanOrEqual(Number(MAX_DIFF_PATCH_CHARS));
-    expect(diff.totalPatchChars).toBeGreaterThan(diff.patch.length);
-    expect(diff.patch).toContain("diff truncated");
+    const observedEnv = JSON.parse(await readFile(envLogPath, "utf-8"));
 
-    const promptLog = await readFile(promptLogPath, "utf-8");
-    const prompts = promptLog
-      .split("<<<PROMPT-BOUNDARY>>>")
-      .map((p) => p.trim())
-      .filter(Boolean);
-    const reviewPrompts = prompts.filter((p) => p.includes("Test evidence:"));
-    expect(reviewPrompts.length).toBeGreaterThan(0);
-
-    for (const reviewPrompt of reviewPrompts) {
-      expect(reviewPrompt).toContain("WARNING: this diff was truncated");
-      expect(reviewPrompt).toContain("UNTRUSTED REPOSITORY CONTENT");
-    }
+    expect(observedEnv).not.toHaveProperty(SENTINEL_KEY);
+    expect(observedEnv.PATH).toBeTruthy();
   });
 });
