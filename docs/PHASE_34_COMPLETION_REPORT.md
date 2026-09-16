@@ -103,6 +103,12 @@ npm run build           → server (tsc) PASS, web (ng build) PASS
 npm run lint             → PASS (tsc --noEmit)
 ```
 
+One `npm run test:e2e` invocation, run immediately after a prior one in quick succession, showed a
+single transient failure on the pre-existing `happy-path.spec.ts` test (unrelated to any file this
+phase touched). Re-ran three consecutive times afterward — both tests passed cleanly all three
+times, and running `happy-path.spec.ts` alone also passed — consistent with a one-off dev-server
+startup timing flake between back-to-back Playwright invocations, not a regression.
+
 ## Regression verification (Phases 28–33)
 
 Full suite re-run confirms: real-mode isolation/cancellation/timeout tests unchanged and passing;
