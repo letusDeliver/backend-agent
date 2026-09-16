@@ -1,11 +1,16 @@
 import type {
   ClaudeCodeExecutor,
   AnalyzeParams,
+  DirectionDecision,
+  DirectionDecisionParams,
   ImplementParams,
   ReviewParams,
   RunTestsParams,
 } from "./ClaudeCodeExecutor.js";
-import type { ExecutionReport, ReviewReport, SpecialistReport, TestRunResult } from "../types/index.js";
+import type { AgentType, ExecutionReport, ReviewReport, SpecialistReport, TestRunResult } from "../types/index.js";
+
+const MOCK_PYTHON_KEYWORDS = ["python", "fastapi", "django", "flask", "pytest", "sqlalchemy"];
+const MOCK_DATABASE_KEYWORDS = ["database", "postgres", "postgresql", "mongo", "mongodb", "redis", "schema", "migration", "transaction", "persistence"];
 
 /**
  * Deterministic, clearly-labeled synthetic executor. It never touches the
@@ -120,5 +125,34 @@ export class MockClaudeCodeExecutor implements ClaudeCodeExecutor {
 
   cancel(_taskId: string): void {
     // Every mock call resolves synchronously/instantly — nothing to cancel.
+  }
+
+  /**
+   * Deterministic stand-in for the real arbitration call: a simple keyword
+   * check on the requirement, defaulting to Node.js (this platform's own
+   * stack) when the text gives no signal at all, exactly the scenario this
+   * method exists for. Confidence is fixed and low (0.4) — mock decisions
+   * must never look as trustworthy as a real one, per this project's
+   * standing rule that simulated output is always clearly labeled.
+   */
+  async decideDirection({ task }: DirectionDecisionParams): Promise<DirectionDecision> {
+    const text = task.requirement.toLowerCase();
+    const pythonMatched = MOCK_PYTHON_KEYWORDS.some((k) => text.includes(k));
+    const language: "python" | "node" = pythonMatched ? "python" : "node";
+    const agents: AgentType[] = [language === "python" ? "python-backend" : "node-backend"];
+    if (MOCK_DATABASE_KEYWORDS.some((k) => text.includes(k))) {
+      agents.push("database");
+    }
+    return {
+      language,
+      agents,
+      rationale: pythonMatched
+        ? "MOCK / SIMULATED EXECUTION: no live reasoning was performed. Chose Python from a keyword match in the requirement text."
+        : "MOCK / SIMULATED EXECUTION: no live reasoning was performed. Defaulted to Node.js (this platform's own stack) " +
+          "because the requirement and repository evidence gave no real stack signal to reason from.",
+      confidence: 0.4,
+      executionMode: "mock",
+      createdAt: new Date().toISOString(),
+    };
   }
 }

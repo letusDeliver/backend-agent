@@ -30,6 +30,12 @@ function validateCreateInput(body: unknown): TaskCreateInput {
   if (!repository) throw new ApiError(400, "repository is required.");
   if (requirement.length > 8000) throw new ApiError(400, "requirement is too long (max 8000 characters).");
 
+  // Phase 36: an explicit per-task opt-in. Anything other than the literal
+  // string "autonomous" is treated as "advisory" — the same human-gated
+  // blocking behavior this platform has always had — so an absent, empty,
+  // or malformed field can never accidentally enable autonomous decisions.
+  const autonomyLevel = b.autonomyLevel === "autonomous" ? "autonomous" : "advisory";
+
   return {
     title: title || requirement.slice(0, 60),
     requirement,
@@ -37,6 +43,7 @@ function validateCreateInput(body: unknown): TaskCreateInput {
     preferredTechnology: typeof b.preferredTechnology === "string" ? b.preferredTechnology.trim() || undefined : undefined,
     preferredDatabase: typeof b.preferredDatabase === "string" ? b.preferredDatabase.trim() || undefined : undefined,
     constraints: typeof b.constraints === "string" ? b.constraints.trim() || undefined : undefined,
+    autonomyLevel,
   };
 }
 
@@ -60,6 +67,8 @@ tasksRouter.post("/tasks", async (req, res, next) => {
       currentStage: "created",
       executionMode: config.executionMode,
       reviewRetryCount: 0,
+      autonomyLevel: input.autonomyLevel ?? "advisory",
+      autonomousDecisions: [],
       attempt: 1,
       createdAt: now,
       updatedAt: now,

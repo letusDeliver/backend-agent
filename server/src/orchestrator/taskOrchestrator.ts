@@ -6,7 +6,7 @@ import type { ClaudeCodeExecutor } from "../execution/ClaudeCodeExecutor.js";
 import { deriveWorkspaceLocation, GitWorktreeManager } from "../execution/gitWorktree.js";
 import { loadSpecialistContract, AGENT_LABELS } from "../agents/specialistContracts.js";
 import { inspectRepository } from "./repositoryInspector.js";
-import { routeTask } from "./routingEngine.js";
+import { routeTask, type RoutingResult } from "./routingEngine.js";
 import { reconcile, hasUnresolvedMaterialConflict, detectReviewConflicts, describeUnresolvedQuestion, recomputeStatus } from "./reconciliation.js";
 import { buildImplementationPlan } from "./implementationPlan.js";
 import { buildContextPack, memoryForAgent, type ContextPack } from "../memory/contextPack.js";
@@ -14,6 +14,7 @@ import { generateCandidateLessons } from "../memory/candidateLessons.js";
 import type { MemoryStore } from "../memory/types.js";
 import type {
   AgentType,
+  AutonomousDecision,
   ExecutionReport,
   FinalHandoff,
   ImplementationPlan,
@@ -73,7 +74,7 @@ export class TaskOrchestrator {
       if (await this.isCancelled(taskId)) return;
 
       task = await this.inspect(task);
-      const routing = routeTask(task, task.detectedStack!);
+      let routing = routeTask(task, task.detectedStack!);
 
       task = await this.setStage(task, "routing", "routing");
       await this.events.publish(task.id, "AGENT_SELECTED", `Routing decision: ${routing.scenario}`, {
@@ -83,8 +84,25 @@ export class TaskOrchestrator {
       });
 
       if (routing.agents.length === 0) {
-        await this.block(task, "No specialist could be confidently selected. Repository inspection was inconclusive and the requirement does not name a backend technology.");
-        return;
+        if (task.autonomyLevel === "autonomous") {
+          const outcome = await this.decideDirectionAutonomously(task);
+          if (!outcome) {
+            await this.block(
+              task,
+              "Autonomous decision mode was enabled, but no confident direction could be decided either. Repository inspection was inconclusive and the requirement does not name a backend technology."
+            );
+            return;
+          }
+          routing = outcome.routing;
+          task.autonomousDecisions = [...(task.autonomousDecisions ?? []), outcome.decision];
+          task = await this.persist(task);
+          await this.events.publish(task.id, "AUTONOMOUS_DECISION_MADE", outcome.decision.decision, {
+            decision: outcome.decision,
+          });
+        } else {
+          await this.block(task, "No specialist could be confidently selected. Repository inspection was inconclusive and the requirement does not name a backend technology.");
+          return;
+        }
       }
 
       task.selectedAgents = routing.agents;
@@ -416,6 +434,44 @@ export class TaskOrchestrator {
       detectedStack,
     });
     return task;
+  }
+
+  /**
+   * Phase 36. Only ever called when `routeTask()` returned zero agents
+   * (repository inspection inconclusive and the requirement names no
+   * backend technology) and `task.autonomyLevel === "autonomous"`. Returns
+   * `null` on any failure (invalid response, executor error) so the caller
+   * falls back to blocking — an autonomous decision that can't be trusted
+   * must never silently let the task proceed with an empty/bad selection.
+   */
+  private async decideDirectionAutonomously(
+    task: Task
+  ): Promise<{ routing: RoutingResult; decision: AutonomousDecision } | null> {
+    try {
+      const result = await this.executor.decideDirection({ task, detectedStack: task.detectedStack! });
+      if (result.agents.length === 0) return null;
+
+      const decision: AutonomousDecision = {
+        subject: "routing",
+        decision: `Autonomous decision: backend language resolved to ${result.language} (confidence ${Math.round(result.confidence * 100)}%).`,
+        agents: result.agents,
+        rationale: result.rationale,
+        confidence: result.confidence,
+        executionMode: result.executionMode,
+        createdAt: result.createdAt,
+      };
+      return {
+        routing: {
+          agents: result.agents,
+          rationale: [`Routing was otherwise ambiguous; autonomous decision mode chose a direction instead: ${result.rationale}`],
+          scenario: `Autonomous decision — ${result.language}`,
+          needsEscalation: false,
+        },
+        decision,
+      };
+    } catch {
+      return null;
+    }
   }
 
   /**

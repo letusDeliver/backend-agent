@@ -38,6 +38,30 @@ export interface RunTestsParams {
   detectedStack: DetectedStack;
 }
 
+/**
+ * Phase 36: invoked only when routing could not confidently select any
+ * specialist (repository inspection inconclusive and the requirement names
+ * no backend technology) and the task opted into `autonomyLevel:
+ * "autonomous"`. Never given repository file access — the decision is
+ * reasoned purely from the requirement text and the (necessarily sparse)
+ * `detectedStack`, not from reading the target repository, since the whole
+ * premise of this call is that no stack signal exists yet to safely locate
+ * a workspace against.
+ */
+export interface DirectionDecisionParams {
+  task: Task;
+  detectedStack: DetectedStack;
+}
+
+export interface DirectionDecision {
+  language: "python" | "node";
+  agents: AgentType[];
+  rationale: string;
+  confidence: number;
+  executionMode: ExecutionMode;
+  createdAt: string;
+}
+
 export interface ReviewParams {
   agent: AgentType;
   task: Task;
@@ -60,6 +84,7 @@ export interface ClaudeCodeExecutor {
   implement(params: ImplementParams): Promise<ExecutionReport>;
   runTests(params: RunTestsParams): Promise<TestRunResult[]>;
   review(params: ReviewParams): Promise<ReviewReport>;
+  decideDirection(params: DirectionDecisionParams): Promise<DirectionDecision>;
   /**
    * Best-effort termination of any in-flight work for a task (Phase 28 —
    * cancellation). Mock execution has nothing to cancel (every call is

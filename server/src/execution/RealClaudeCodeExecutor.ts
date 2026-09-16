@@ -7,11 +7,15 @@ import { buildClaudeEnvironment } from "./claudeEnvironment.js";
 import type {
   ClaudeCodeExecutor,
   AnalyzeParams,
+  DirectionDecision,
+  DirectionDecisionParams,
   ImplementParams,
   ReviewParams,
   RunTestsParams,
 } from "./ClaudeCodeExecutor.js";
-import type { ExecutionReport, ReviewReport, SpecialistReport, Task, TestRunResult } from "../types/index.js";
+import type { AgentType, ExecutionReport, ReviewReport, SpecialistReport, Task, TestRunResult } from "../types/index.js";
+
+const VALID_AUTONOMOUS_AGENTS: ReadonlySet<AgentType> = new Set(["python-backend", "node-backend", "database"]);
 
 const exec = promisify(execCb);
 
@@ -409,5 +413,51 @@ export class RealClaudeCodeExecutor implements ClaudeCodeExecutor {
         attempt,
       };
     }
+  }
+
+  /**
+   * Phase 36. Runs with `cwd: config.tasksDir` — the platform's own
+   * artifact directory, never `task.repository` — because this call needs
+   * no repository file access at all: it is reasoning about the
+   * requirement text and the (necessarily sparse, since this only ever
+   * fires when routing found no stack signal) `detectedStack`, not about
+   * repository content. This also means it needs no isolated worktree,
+   * unlike `analyze()`/`implement()`/`review()`, which is exactly why it
+   * can run at the routing stage, before any workspace exists.
+   */
+  async decideDirection({ task, detectedStack }: DirectionDecisionParams): Promise<DirectionDecision> {
+    const prompt = [
+      "Repository-first routing could not determine a backend language for this task: repository inspection found no recognizable manifest, and the requirement does not name one. Autonomous decision mode is enabled for this task, so you must decide a direction rather than leaving it for a human to resolve.",
+      REQUIREMENT_TRUST_FRAME,
+      task.requirement,
+      DETECTED_STACK_TRUST_FRAME,
+      JSON.stringify(detectedStack),
+      "Decide: which backend language to build in (\"python\" or \"node\"), and which specialists are needed " +
+        '(choose from "python-backend", "node-backend", "database" — include "database" only if persistence is a material part of the requirement, and always include the language-matching backend specialist).',
+      "If the requirement gives no real signal at all (e.g. a placeholder like \"tbd\"), make the most defensible default choice rather than refusing, and reflect the genuine uncertainty in a lower confidence score.",
+      "Respond with ONLY a JSON object of this exact shape, no prose outside it:",
+      '{"language": "python"|"node", "agents": string[], "rationale": string, "confidence": number between 0 and 1}',
+    ].join("\n");
+
+    const { stdout } = await this.runClaudeCli(task.id, prompt, config.tasksDir, "plan");
+    const resultText = this.parseResultText(stdout);
+    const payload = this.extractJsonPayload<{ language: "python" | "node"; agents: string[]; rationale: string; confidence: number }>(resultText);
+
+    if (payload.language !== "python" && payload.language !== "node") {
+      throw new ClaudeCliError(`Autonomous decision returned an invalid language: ${String(payload.language)}`);
+    }
+    const agents = payload.agents.filter((a): a is AgentType => VALID_AUTONOMOUS_AGENTS.has(a as AgentType));
+    if (agents.length === 0) {
+      throw new ClaudeCliError("Autonomous decision returned no valid specialist agents.");
+    }
+
+    return {
+      language: payload.language,
+      agents,
+      rationale: payload.rationale,
+      confidence: payload.confidence,
+      executionMode: "real",
+      createdAt: new Date().toISOString(),
+    };
   }
 }

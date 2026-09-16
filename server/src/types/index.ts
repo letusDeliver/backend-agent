@@ -23,6 +23,18 @@ export type AgentType = "python-backend" | "node-backend" | "database";
 
 export type ExecutionMode = "real" | "mock";
 
+/**
+ * Phase 36: `"advisory"` (default) preserves every existing human-gated
+ * blocking behavior unchanged (ADR-0005/0006) — a task blocks exactly as it
+ * always has when routing or reconciliation can't reach a confident
+ * decision. `"autonomous"` is an explicit per-task opt-in that lets the
+ * orchestrator invoke LLM-backed arbitration at those same decision points
+ * instead of blocking — see `TaskOrchestrator`'s use of
+ * `ClaudeCodeExecutor.decideDirection()`. Nothing about the default pipeline
+ * changes unless a task is deliberately created with this set.
+ */
+export type AutonomyLevel = "advisory" | "autonomous";
+
 export interface TaskCreateInput {
   title: string;
   requirement: string;
@@ -30,6 +42,7 @@ export interface TaskCreateInput {
   preferredTechnology?: string;
   preferredDatabase?: string;
   constraints?: string;
+  autonomyLevel?: AutonomyLevel;
 }
 
 export interface DetectedStack {
@@ -67,6 +80,25 @@ export interface RealExecutionWorkspace {
   cleanupError?: string;
 }
 
+/**
+ * An audit record of one LLM-backed decision the orchestrator made on its
+ * own, in place of blocking for a developer (Phase 36) — only ever produced
+ * when `Task.autonomyLevel === "autonomous"`. `subject` names which
+ * decision point produced it; Phase 36 only ever writes `"routing"`
+ * (reconciliation-conflict arbitration is explicitly out of scope — see
+ * docs/PHASE_36_PROPOSAL.md). Always appended to, never overwritten, so a
+ * task carries the full history of every autonomous call made for it.
+ */
+export interface AutonomousDecision {
+  subject: "routing";
+  decision: string;
+  agents: AgentType[];
+  rationale: string;
+  confidence: number;
+  executionMode: ExecutionMode;
+  createdAt: string;
+}
+
 export interface Task {
   id: string;
   title: string;
@@ -81,6 +113,15 @@ export interface Task {
   currentStage: string;
   executionMode: ExecutionMode;
   reviewRetryCount: number;
+  /**
+   * Defaults to `"advisory"` at creation (routes/tasks.ts) — every existing
+   * task predating Phase 36 is absent this field, which every reader must
+   * treat identically to `"advisory"` (no migration is written, matching
+   * this project's established convention for additive optional fields —
+   * see `RealExecutionWorkspace.cleanupStatus`).
+   */
+  autonomyLevel?: AutonomyLevel;
+  autonomousDecisions?: AutonomousDecision[];
   executionWorkspace?: RealExecutionWorkspace;
   /**
    * 1 for a task's first run. Incremented by `TaskOrchestrator.retry()`;
@@ -119,7 +160,8 @@ export type EventType =
   | "TASK_CANCELLED"
   | "TASK_RETRIED"
   | "WORKSPACE_CLEANED"
-  | "WORKSPACE_CLEANUP_FAILED";
+  | "WORKSPACE_CLEANUP_FAILED"
+  | "AUTONOMOUS_DECISION_MADE";
 
 export interface TaskEvent {
   id: string;
