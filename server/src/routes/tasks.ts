@@ -4,6 +4,7 @@ import { artifactStore, eventBus, executor, orchestrator, taskStore } from "../c
 import { config } from "../config.js";
 import { resolveRepositoryPath } from "../utils/paths.js";
 import { ApiError } from "../middleware/errorHandler.js";
+import { describeUnresolvedQuestion, hasUnresolvedMaterialConflict, recomputeStatus } from "../orchestrator/reconciliation.js";
 import type { Task, TaskCreateInput } from "../types/index.js";
 
 export const tasksRouter = Router();
@@ -177,6 +178,46 @@ tasksRouter.get("/tasks/:id/reconciliation", async (req, res, next) => {
     if (!task) throw new ApiError(404, "Task not found.");
     const reconciliation = await artifactStore.readReconciliation(task.id);
     res.json({ reconciliation });
+  } catch (err) {
+    next(err);
+  }
+});
+
+tasksRouter.post("/tasks/:id/reconciliation/conflicts/:conflictId/resolve", async (req, res, next) => {
+  try {
+    const task = await taskStore.get(req.params.id);
+    if (!task) throw new ApiError(404, "Task not found.");
+
+    const reconciliation = await artifactStore.readReconciliation(task.id);
+    if (!reconciliation) throw new ApiError(404, "Reconciliation not found for this task.");
+
+    const conflict = reconciliation.conflicts.find((c) => c.id === req.params.conflictId);
+    if (!conflict) throw new ApiError(404, "Conflict not found.");
+    if (conflict.resolution) throw new ApiError(409, "Conflict is already resolved.");
+
+    const body = req.body as Record<string, unknown>;
+    const resolution = typeof body.resolution === "string" ? body.resolution.trim() : "";
+    if (!resolution) throw new ApiError(400, "resolution is required.");
+    const reason = typeof body.reason === "string" ? body.reason.trim() : "";
+    const resolvedBy = typeof body.resolvedBy === "string" && body.resolvedBy.trim() ? body.resolvedBy.trim() : "developer";
+
+    // Computed before mutating the conflict — describeUnresolvedQuestion is a
+    // pure function of the conflict's decision content, not its resolution
+    // state, so this is the exact string to remove from unresolvedQuestions.
+    const questionText = describeUnresolvedQuestion(conflict);
+
+    conflict.resolution = { resolution, reason, resolvedBy, resolvedAt: new Date().toISOString() };
+    reconciliation.unresolvedQuestions = reconciliation.unresolvedQuestions.filter((q) => q !== questionText);
+    reconciliation.status = recomputeStatus(reconciliation);
+    await artifactStore.writeReconciliation(reconciliation);
+
+    let resumed = false;
+    if (task.status === "blocked" && !hasUnresolvedMaterialConflict(reconciliation)) {
+      resumed = true;
+      void orchestrator.resumeAfterConflictResolution(task.id);
+    }
+
+    res.json({ reconciliation, resumed });
   } catch (err) {
     next(err);
   }

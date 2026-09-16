@@ -147,12 +147,79 @@ export interface ArchitectureDecision {
   owner: AgentType | "orchestrator";
 }
 
+/**
+ * The fixed, deliberately small taxonomy conflict detection classifies
+ * decisions into (Phase 30 brief section 6). Order in reconciliation.ts's
+ * keyword table matters (most specific first, "architecture" is the
+ * fallback) — this type is just the closed set of legal values.
+ */
+export type DecisionCategory =
+  | "architecture"
+  | "api"
+  | "database"
+  | "data-model"
+  | "transaction"
+  | "validation"
+  | "authentication"
+  | "authorization"
+  | "error-handling"
+  | "performance"
+  | "testing"
+  | "dependency"
+  | "configuration"
+  | "deployment";
+
+export type DecisionPolarity = "affirmative" | "negative";
+
+export interface ConflictParticipant {
+  agent: AgentType;
+  decision: string;
+  rationale: string;
+  evidence: string;
+  confidence: number;
+  polarity: DecisionPolarity;
+  memoryInfluenced: boolean;
+  memoryIds: string[];
+}
+
+export interface ConflictResolution {
+  resolution: string;
+  reason: string;
+  resolvedBy: string;
+  resolvedAt: string;
+}
+
+export type ConflictMateriality = "material" | "non-material";
+
+/**
+ * A material engineering disagreement the orchestrator refuses to silently
+ * resolve (PHASE_30_IMPLEMENTATION_PLAN.md sections 3/6/8). `kind:
+ * "evidence-contradiction"` has exactly one participant — the disagreeing
+ * agent — plus `repositoryEvidence` describing what the repository actually
+ * shows; the recommendation itself is never rewritten (section 6/8).
+ */
+export interface ReconciliationConflict {
+  id: string;
+  kind: "specialist-disagreement" | "evidence-contradiction";
+  category: DecisionCategory;
+  subject: string;
+  detectedAt: "reconciliation" | "review";
+  participants: ConflictParticipant[];
+  repositoryEvidence?: string;
+  materiality: ConflictMateriality;
+  reason: string;
+  resolution: ConflictResolution | null;
+  createdAt: string;
+}
+
 export interface Reconciliation {
   taskId: string;
   status: ReconciliationStatus;
   decisions: ArchitectureDecision[];
+  agreements: string[];
+  conflicts: ReconciliationConflict[];
+  unresolvedQuestions: string[];
   risks: SpecialistRisk[];
-  conflicts: string[];
   confidencePercent: number;
   createdAt: string;
 }

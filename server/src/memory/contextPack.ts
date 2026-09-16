@@ -29,7 +29,7 @@ const MAX_INCLUDED = 3;
 const FETCH_LIMIT = 8;
 const SUMMARY_LENGTH = 240;
 
-const KNOWN_DATABASES = ["postgresql", "postgres", "mysql", "mongodb", "mongo", "sqlite", "redis"];
+export const KNOWN_DATABASES = ["postgresql", "postgres", "mysql", "mongodb", "mongo", "sqlite", "redis"];
 
 function stackTechnology(detectedStack: DetectedStack): string[] {
   return [detectedStack.language, detectedStack.framework, detectedStack.database].filter(

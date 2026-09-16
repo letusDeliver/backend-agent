@@ -7,7 +7,7 @@ import { GitWorktreeManager } from "../execution/gitWorktree.js";
 import { loadSpecialistContract, AGENT_LABELS } from "../agents/specialistContracts.js";
 import { inspectRepository } from "./repositoryInspector.js";
 import { routeTask } from "./routingEngine.js";
-import { reconcile } from "./reconciliation.js";
+import { reconcile, hasUnresolvedMaterialConflict, detectReviewConflicts, describeUnresolvedQuestion, recomputeStatus } from "./reconciliation.js";
 import { buildImplementationPlan } from "./implementationPlan.js";
 import { buildContextPack, memoryForAgent, type ContextPack } from "../memory/contextPack.js";
 import { generateCandidateLessons } from "../memory/candidateLessons.js";
@@ -18,6 +18,7 @@ import type {
   FinalHandoff,
   ImplementationPlan,
   Reconciliation,
+  ReconciliationConflict,
   ReviewReport,
   SpecialistReport,
   Task,
@@ -90,11 +91,12 @@ export class TaskOrchestrator {
 
       task = await this.setStage(task, "reconciling", "reconciling");
       await this.events.publish(task.id, "RECONCILIATION_STARTED", "Reconciling specialist recommendations.");
-      const reconciliation = reconcile(task.id, reports, routing);
+      const reconciliation = reconcile(task.id, reports, routing, task.detectedStack, contextPack);
       await this.artifacts.writeReconciliation(reconciliation);
       await this.events.publish(task.id, "RECONCILIATION_COMPLETED", `Reconciliation status: ${reconciliation.status}`, {
         status: reconciliation.status,
         confidencePercent: reconciliation.confidencePercent,
+        conflicts: reconciliation.conflicts.length,
       });
 
       if (reconciliation.status === "NEEDS_USER_DECISION" || reconciliation.status === "UNKNOWN") {
@@ -107,42 +109,113 @@ export class TaskOrchestrator {
         return;
       }
 
-      if (await this.isCancelled(taskId)) return;
-
-      task = await this.setStage(task, "planning", "planning");
-      const plan = buildImplementationPlan(task, task.detectedStack!, reconciliation, routing.agents);
-      await this.artifacts.writeImplementationPlan(plan);
-      await this.events.publish(task.id, "IMPLEMENTATION_PLAN_CREATED", `Implementation plan created (${plan.files.length} files).`, {
-        files: plan.files,
-      });
-
-      if (await this.isCancelled(taskId)) return;
-
-      task = await this.setStage(task, "implementing", "implementing");
-      let executionReport = await this.implement(task, plan);
-
-      if (await this.isCancelled(taskId)) return;
-
-      const { finalReviews, blocked } = await this.reviewLoop(task, plan, routing.agents, executionReport);
-      if (blocked) {
-        await this.block(task, "Review loop exceeded the maximum retry count with unresolved blocking findings.");
+      if (hasUnresolvedMaterialConflict(reconciliation)) {
+        const count = reconciliation.conflicts.filter((c) => c.materiality === "material" && !c.resolution).length;
+        await this.block(
+          task,
+          `Reconciliation found ${count} unresolved material engineering conflict(s) that require developer resolution before implementation can proceed. See reconciliation.conflicts.`
+        );
         return;
       }
 
       if (await this.isCancelled(taskId)) return;
 
-      task = await this.handoff(task, plan, executionReport, finalReviews, routing.agents);
+      await this.continueAfterReconciliation(task, reconciliation);
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      const failed = await this.taskStore.get(taskId);
-      if (failed && failed.status !== "cancelled") {
-        failed.status = "failed";
-        failed.error = message;
-        failed.updatedAt = new Date().toISOString();
-        await this.persist(failed);
-        await this.events.publish(taskId, "TASK_FAILED", `Task failed: ${message}`);
-      }
+      await this.handleRunFailure(taskId, err);
     }
+  }
+
+  private async handleRunFailure(taskId: string, err: unknown): Promise<void> {
+    const message = err instanceof Error ? err.message : String(err);
+    const failed = await this.taskStore.get(taskId);
+    if (failed && failed.status !== "cancelled") {
+      failed.status = "failed";
+      failed.error = message;
+      failed.updatedAt = new Date().toISOString();
+      await this.persist(failed);
+      await this.events.publish(taskId, "TASK_FAILED", `Task failed: ${message}`);
+    }
+  }
+
+  /**
+   * Shared tail (planning -> implementing -> review -> handoff) between the
+   * normal pipeline and conflict-resolution continuation (Phase 30 —
+   * PHASE_30_IMPLEMENTATION_PLAN.md section 11). `reconciliation` is already
+   * persisted and free of unresolved material conflicts by the time this
+   * runs — callers are responsible for that gate.
+   */
+  private async continueAfterReconciliation(task: Task, reconciliation: Reconciliation): Promise<void> {
+    const agents = task.selectedAgents;
+
+    if (await this.isCancelled(task.id)) return;
+
+    task = await this.setStage(task, "planning", "planning");
+    const plan = buildImplementationPlan(task, task.detectedStack!, reconciliation, agents);
+    await this.artifacts.writeImplementationPlan(plan);
+    await this.events.publish(task.id, "IMPLEMENTATION_PLAN_CREATED", `Implementation plan created (${plan.files.length} files).`, {
+      files: plan.files,
+    });
+
+    if (await this.isCancelled(task.id)) return;
+
+    task = await this.setStage(task, "implementing", "implementing");
+    const executionReport = await this.implement(task, plan);
+
+    if (await this.isCancelled(task.id)) return;
+
+    const { finalReviews, blocked, blockReason } = await this.reviewLoop(task, plan, agents, executionReport);
+    if (blocked) {
+      await this.block(task, blockReason ?? "Review loop exceeded the maximum retry count with unresolved blocking findings.");
+      return;
+    }
+
+    if (await this.isCancelled(task.id)) return;
+
+    await this.handoff(task, plan, executionReport, finalReviews, agents);
+  }
+
+  /**
+   * Entry point for `POST /tasks/:id/reconciliation/conflicts/:conflictId/resolve`
+   * once no unresolved material conflict remains. Narrowly scoped to the
+   * conflict gate this milestone introduces — not a general blocked/failed
+   * task resume mechanism (plan section 11 scope note). No-ops safely if the
+   * task isn't in a resumable state; callers only invoke this after
+   * confirming the gate is clear, so this is a defensive re-check, not the
+   * primary guard.
+   */
+  async resumeAfterConflictResolution(taskId: string): Promise<void> {
+    let task = await this.taskStore.get(taskId);
+    if (!task || task.status !== "blocked") return;
+
+    const reconciliation = await this.artifacts.readReconciliation(taskId);
+    if (!reconciliation || hasUnresolvedMaterialConflict(reconciliation)) return;
+
+    try {
+      task = await this.setStage(task, "reconciling", "reconciling");
+      await this.events.publish(task.id, "RECONCILIATION_COMPLETED", "All material conflicts resolved; resuming orchestration.", {
+        status: reconciliation.status,
+        conflicts: reconciliation.conflicts.length,
+      });
+      await this.continueAfterReconciliation(task, reconciliation);
+    } catch (err) {
+      await this.handleRunFailure(taskId, err);
+    }
+  }
+
+  /**
+   * Merges freshly-detected review-stage conflicts into the task's
+   * persisted reconciliation record (plan section 10) rather than starting
+   * a parallel workflow — the same artifact, resolution API and resume path
+   * used for reconciliation-stage conflicts cover this case too.
+   */
+  private async appendReconciliationConflicts(taskId: string, newConflicts: ReconciliationConflict[]): Promise<void> {
+    const reconciliation = await this.artifacts.readReconciliation(taskId);
+    if (!reconciliation) return;
+    reconciliation.conflicts.push(...newConflicts);
+    reconciliation.unresolvedQuestions.push(...newConflicts.map((c) => describeUnresolvedQuestion(c)));
+    reconciliation.status = recomputeStatus(reconciliation);
+    await this.artifacts.writeReconciliation(reconciliation);
   }
 
   /**
@@ -299,7 +372,7 @@ export class TaskOrchestrator {
     plan: ImplementationPlan,
     agents: AgentType[],
     executionReport: ExecutionReport
-  ): Promise<{ finalReviews: ReviewReport[]; blocked: boolean }> {
+  ): Promise<{ finalReviews: ReviewReport[]; blocked: boolean; blockReason?: string }> {
     task = await this.setStage(task, "reviewing", "reviewing");
 
     for (let attempt = 1; attempt <= config.maxReviewRetries + 1; attempt += 1) {
@@ -327,6 +400,22 @@ export class TaskOrchestrator {
         task.reviewRetryCount = attempt - 1;
         await this.persist(task);
         return { finalReviews: reviews, blocked: false };
+      }
+
+      // A corrective pass can't satisfy two specialists demanding opposite
+      // fixes — surface it as a reconciliation conflict and stop looping
+      // rather than churning through retries that can never converge
+      // (plan section 10/13).
+      const reviewConflicts = detectReviewConflicts(reviews);
+      if (reviewConflicts.length > 0) {
+        await this.appendReconciliationConflicts(task.id, reviewConflicts);
+        task.reviewRetryCount = attempt;
+        await this.persist(task);
+        return {
+          finalReviews: reviews,
+          blocked: true,
+          blockReason: `${reviewConflicts.length} conflicting specialist review finding(s) require developer resolution (see reconciliation.conflicts) before a corrective implementation pass can proceed.`,
+        };
       }
 
       await this.events.publish(task.id, "REVIEW_BLOCKING_ISSUE_FOUND", `${blockingFindings.length} blocking finding(s) returned the task to implementation.`, {
