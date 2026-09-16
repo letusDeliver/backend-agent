@@ -4,23 +4,37 @@ import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import request from "supertest";
 import type { Express } from "express";
-import { MockClaudeCodeExecutor } from "../src/execution/MockClaudeCodeExecutor.js";
+import type { MockClaudeCodeExecutor as MockClaudeCodeExecutorType } from "../src/execution/MockClaudeCodeExecutor.js";
 import type { TaskStore } from "../src/store/taskStore.js";
 import type { ArtifactStore as ArtifactStoreType } from "../src/artifacts/artifactStore.js";
 import type { TaskOrchestrator as TaskOrchestratorType } from "../src/orchestrator/taskOrchestrator.js";
 import type {
   ClaudeCodeExecutor,
   AnalyzeParams,
+  ConflictResolutionDecision,
+  ConflictResolutionParams,
+  DecomposeRequirementParams,
   DirectionDecisionParams,
   DirectionDecision,
   ImplementParams,
   ReviewParams,
   RunTestsParams,
+  SubtaskDefinition,
 } from "../src/execution/ClaudeCodeExecutor.js";
 import type { ExecutionReport, ReviewReport, SpecialistReport, TestRunResult } from "../src/types/index.js";
 
 describe("MockClaudeCodeExecutor.decideDirection — Phase 36 deterministic fixture", () => {
-  const executor = new MockClaudeCodeExecutor();
+  let executor: MockClaudeCodeExecutorType;
+
+  beforeAll(async () => {
+    // Dynamically imported, never at file top level — see the Phase 39
+    // note in backlogDecomposition.test.ts for why a real top-level import
+    // here would freeze config.tasksDir/dataDir before this file's other
+    // describe blocks get to override DATA_DIR/TASKS_DIR in their own
+    // beforeAll, leaking task directories into the real project's tasks/.
+    const { MockClaudeCodeExecutor } = await import("../src/execution/MockClaudeCodeExecutor.js");
+    executor = new MockClaudeCodeExecutor();
+  });
 
   function makeTask(requirement: string) {
     const now = new Date().toISOString();
@@ -193,6 +207,14 @@ class FailingDirectionExecutor implements ClaudeCodeExecutor {
 
   async decideDirection(_params: DirectionDecisionParams): Promise<DirectionDecision> {
     throw new Error("Simulated arbitration failure.");
+  }
+
+  async decideConflictResolution(_params: ConflictResolutionParams): Promise<ConflictResolutionDecision> {
+    throw new Error("decideConflictResolution is not exercised by this fixture.");
+  }
+
+  async decomposeRequirement(_params: DecomposeRequirementParams): Promise<SubtaskDefinition[]> {
+    throw new Error("decomposeRequirement is not exercised by this fixture.");
   }
 }
 

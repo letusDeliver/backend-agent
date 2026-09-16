@@ -37,16 +37,21 @@ describe("readRequirementDocs (Phase 38)", () => {
   });
 
   it("truncates a document larger than the configured limit, but reports the real total", async () => {
-    const original = config.maxRequirementDocChars;
-    config.maxRequirementDocChars = 10;
+    // config.maxRequirementDocChars is a getter that re-reads this env var
+    // on every access (see config.ts) — set/restore the env var itself
+    // rather than assigning to the getter property directly.
+    const original = process.env.MAX_REQUIREMENT_DOC_CHARS;
+    process.env.MAX_REQUIREMENT_DOC_CHARS = "10";
     try {
+      expect(config.maxRequirementDocChars).toBe(10);
       await writeFile(path.join(repoDir, "big.md"), "0123456789ABCDEF");
       const [doc] = await readRequirementDocs(repoDir, ["big.md"]);
       expect(doc.truncated).toBe(true);
       expect(doc.content).toBe("0123456789");
       expect(doc.totalChars).toBe(16);
     } finally {
-      config.maxRequirementDocChars = original;
+      if (original === undefined) delete process.env.MAX_REQUIREMENT_DOC_CHARS;
+      else process.env.MAX_REQUIREMENT_DOC_CHARS = original;
     }
   });
 

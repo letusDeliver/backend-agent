@@ -5,9 +5,8 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { TaskStore } from "../src/store/taskStore.js";
 import type { ArtifactStore as ArtifactStoreType } from "../src/artifacts/artifactStore.js";
 import type { TaskOrchestrator as TaskOrchestratorType } from "../src/orchestrator/taskOrchestrator.js";
-import type { ClaudeCodeExecutor, AnalyzeParams, ConflictResolutionDecision, ConflictResolutionParams, DirectionDecision, DirectionDecisionParams, ImplementParams, ReviewParams, RunTestsParams } from "../src/execution/ClaudeCodeExecutor.js";
+import type { ClaudeCodeExecutor, AnalyzeParams, ConflictResolutionDecision, ConflictResolutionParams, DecomposeRequirementParams, DirectionDecision, DirectionDecisionParams, ImplementParams, ReviewParams, RunTestsParams, SubtaskDefinition } from "../src/execution/ClaudeCodeExecutor.js";
 import type { ExecutionReport, ReviewReport, SpecialistReport, TestRunResult } from "../src/types/index.js";
-import { recomputeStatus } from "../src/orchestrator/reconciliation.js";
 
 /**
  * A deterministic fixture executor whose two specialists genuinely disagree
@@ -75,6 +74,10 @@ class ConflictingStubExecutor implements ClaudeCodeExecutor {
 
   async decideConflictResolution(_params: ConflictResolutionParams): Promise<ConflictResolutionDecision> {
     throw new Error("decideConflictResolution is not exercised by this fixture.");
+  }
+
+  async decomposeRequirement(_params: DecomposeRequirementParams): Promise<SubtaskDefinition[]> {
+    throw new Error("decomposeRequirement is not exercised by this fixture.");
   }
 }
 
@@ -170,6 +173,14 @@ describe("Reconciliation CONFLICT — full pipeline demonstration", () => {
       resolvedBy: "developer",
       resolvedAt: new Date().toISOString(),
     };
+    // Dynamically imported here, never at file top level — a real top-level
+    // import of this module would evaluate config.js (freezing
+    // config.tasksDir/dataDir to their real-project defaults) before this
+    // suite's own beforeAll gets to override DATA_DIR/TASKS_DIR, leaking
+    // this task's directory into the real project's tasks/ folder. This
+    // exact latent bug existed in this file already; caught while adding
+    // Phase 39 tests with the same pattern.
+    const { recomputeStatus } = await import("../src/orchestrator/reconciliation.js");
     reconciliation!.status = recomputeStatus(reconciliation!);
     await artifactStore.writeReconciliation(reconciliation!);
     expect(reconciliation!.status).toBe("AGREED");
