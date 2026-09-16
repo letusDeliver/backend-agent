@@ -61,8 +61,15 @@ const stack = {
   evidence: [],
 };
 
+/**
+ * The extra type/subtype fields make this envelope shape valid for both
+ * analyze()'s batch --output-format json path (which only ever reads
+ * `.result`, ignoring anything else) and implement()'s streaming
+ * --output-format stream-json path (Phase 41), which requires
+ * `type: "result"` to recognize this as the terminal line.
+ */
 function respond(child: ReturnType<typeof makeFakeChild>, json: unknown) {
-  child.stdout.emit("data", Buffer.from(JSON.stringify({ result: "```json\n" + JSON.stringify(json) + "\n```" })));
+  child.stdout.emit("data", Buffer.from(JSON.stringify({ type: "result", subtype: "success", result: "```json\n" + JSON.stringify(json) + "\n```" })));
   child.emit("close", 0, null);
 }
 

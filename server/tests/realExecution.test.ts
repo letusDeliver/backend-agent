@@ -44,7 +44,7 @@ if (mode === "acceptEdits") {
   };
 }
 
-process.stdout.write(JSON.stringify({ result: "\`\`\`json\\n" + JSON.stringify(payload) + "\\n\`\`\`" }));
+process.stdout.write(JSON.stringify({ type: "result", subtype: "success", result: "\`\`\`json\\n" + JSON.stringify(payload) + "\\n\`\`\`" }));
 `;
 
 let app: Express;
