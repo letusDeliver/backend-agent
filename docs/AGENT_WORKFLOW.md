@@ -78,6 +78,20 @@ repository's current `HEAD` before any implementation call — so a retried real
 never at risk of Claude Code running against a stale worktree carrying a prior attempt's
 uncommitted or committed changes. See `docs/adr/0007-retry-restarts-from-inspection.md`.
 
+## Workspace cleanup — an explicit, separate action from retry
+
+A real-mode task's isolated git worktree is never automatically deleted, by retry or anything
+else. `POST /tasks/:id/cleanup-workspace` (Phase 32) is a distinct, always-manual action a
+developer can take once a task is terminal (`completed`/`failed`/`cancelled`) and they're done
+with that workspace — it removes the worktree and its task branch via the same tested primitive
+Phase 28 already introduced (`GitWorktreeManager.remove()`), while leaving every durable artifact
+(specialist reports, reconciliation, plan, execution report, reviews, final handoff, archived
+attempt history) untouched, since those live in `tasks/<id>/` alongside — not inside — the
+worktree. It is never offered for a `blocked` task: Phase 30's conflict-resolution resume path
+reuses the exact same workspace, so cleanup is refused server-side while a task is `blocked`, not
+merely hidden in the UI. See `docs/REAL_EXECUTION.md#cleanup` and
+`docs/adr/0008-manual-workspace-cleanup.md`.
+
 **Startup crash recovery**: if the orchestrator process dies mid-pipeline, a task can be left
 stuck in a non-terminal, non-`created` status forever with no process left to finish it. Before
 the server starts accepting requests, a startup sweep (`recoverOrphanedTasks()`) finds any task in

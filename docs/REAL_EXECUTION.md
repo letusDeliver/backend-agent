@@ -69,7 +69,18 @@ Every `claude` CLI invocation is bounded by `CLAUDE_TIMEOUT_MS` (default 120000m
 
 ## Cleanup
 
-Task workspaces (`tasks/<task-id>/workspace/`) are **never automatically deleted** — not on success, not on failure, not on cancellation. This is deliberate: a failed or cancelled task's workspace is exactly what you need to debug it. `GitWorktreeManager.remove()` exists as a safe, tested cleanup primitive (`git worktree remove --force` + branch deletion), but nothing in this phase wires it to an automatic trigger — that's left for a future maintenance command once there's real usage data on how much workspace accumulation actually matters in practice.
+Task workspaces (`tasks/<task-id>/workspace/`) are **never automatically deleted** — not on success, not on failure, not on cancellation, not by the startup crash-recovery sweep. This is deliberate: a failed, cancelled or crashed task's workspace is exactly what you need to debug it, and a `blocked` (conflict) task's workspace is required for conflict resolution to keep working (see below).
+
+What you get instead (Phase 32) is **explicit manual cleanup**: `POST /tasks/:id/cleanup-workspace` (or `[ Cleanup Workspace ]` in Task Detail) removes the isolated worktree and its task branch via the same tested primitive that's existed since Phase 28 (`GitWorktreeManager.remove()` — `git worktree remove --force` + branch deletion), once you've reviewed/merged whatever you needed from it. Nothing about this is automatic or scheduled — there's still no background job or retention policy; cleanup only ever happens when you ask for it.
+
+Eligibility is enforced server-side, not just hidden in the UI:
+
+- Only for `executionMode: "real"` tasks with a `ready`, not-yet-cleaned workspace.
+- Only once the task is terminal — `completed`, `failed`, or `cancelled`.
+- **Never for a `blocked` task**, even though `blocked` is otherwise "not actively running": resolving a Phase 30 conflict and resuming (`resumeAfterConflictResolution()`) reaches `implement()` without ever re-preparing a workspace, so a `blocked` task's worktree must still be there for conflict resolution to keep working. Cleanup for a `blocked` task is rejected with `409`, and the worktree is provably untouched by the attempt.
+- A cleanup failure (a locked worktree, a permissions error, …) is recorded on `Task.executionWorkspace.cleanupStatus`/`cleanupError` and never changes the task's own `status` — the engineering outcome and the workspace's disk lifecycle are independent facts. See `docs/adr/0008-manual-workspace-cleanup.md`.
+
+Task artifacts (specialist reports, reconciliation, implementation plan, execution report, reviews, final handoff, and archived attempt history) live in `tasks/<task-id>/` alongside — but outside of — the `workspace/` subdirectory, and are never touched by cleanup. Retrying a task whose workspace was manually cleaned up works exactly as retrying one that was never cleaned: `GitWorktreeManager.prepare()` already treats "nothing at this path" as the normal case.
 
 ## Failure recovery
 
@@ -106,6 +117,6 @@ git diff main agent/task-<id>
 ## Known limitations
 
 - `runTests()` cannot currently be cancelled mid-run independently of the overall task timeout (see Cancellation above).
-- Workspace cleanup is manual/future work, not automatic (see Cleanup above).
+- Workspace cleanup (Phase 32) is manual/explicit only — there's still no automatic or time-based retention policy, so disk usage from workspaces a developer never cleans up remains unbounded (see Cleanup above).
 - The repository-safety guard is a deny-list plus a few positive checks, not an exhaustive sandbox — it stops the obvious dangerous targets (your home directory, system paths, the platform's own source), not every conceivable misuse of a local developer tool that already has file-write access to your machine.
 - Real execution still runs directly on your machine, as your own OS user, with whatever filesystem/network access that implies — there is no container or VM boundary. Isolation here means "isolated from your repository's working tree and branch," not "sandboxed from your machine."

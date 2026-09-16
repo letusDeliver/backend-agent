@@ -58,6 +58,22 @@ below) before resetting the task, increments `Task.attempt`, and returns the tas
 doesn't exist, `409` if it is not currently `failed`, `blocked` or `cancelled` (this also covers a
 retry racing a still-in-flight task), `202` otherwise.
 
+## `POST /tasks/:id/cleanup-workspace`
+
+Removes a terminal, non-blocked real-mode task's isolated git worktree and task branch (Phase 32
+— see [REAL_EXECUTION.md](REAL_EXECUTION.md#cleanup) and
+[adr/0008-manual-workspace-cleanup.md](adr/0008-manual-workspace-cleanup.md)). No request body;
+every path/branch value is derived server-side from `Task.executionWorkspace` — the client can
+never supply a filesystem path. `200` with the updated task on success
+(`executionWorkspace.cleanupStatus: "cleaned"`, `cleanedAt` set). `404` if the task doesn't exist.
+`409` if there's nothing eligible to clean up: a mock-mode task, a task whose workspace was never
+prepared or whose preparation itself failed, a task that's still in-flight, a task that's
+`blocked` (conflict resolution needs this exact workspace to still exist), or a workspace that's
+already `cleaned`. `500` if the underlying git removal genuinely fails — in that case
+`executionWorkspace.cleanupStatus` becomes `"cleanup_failed"` with `cleanupError` set, but
+`Task.status`/`Task.error` are never touched; the cleanup can simply be retried. Never automatic —
+this is only ever called explicitly by a developer.
+
 ## `GET /tasks/:id/attempts`
 
 `{ "attempts": number[] }` — archived attempt numbers, ascending. Empty until the task has been
@@ -103,7 +119,7 @@ Server-Sent Events stream. Replays full history on connect, then streams live ev
 { "id": "...", "taskId": "...", "type": "REPOSITORY_INSPECTION_COMPLETED", "message": "...", "data": { }, "createdAt": "..." }
 ```
 
-Event types: `TASK_CREATED`, `REPOSITORY_INSPECTION_STARTED`, `REPOSITORY_INSPECTION_COMPLETED`, `AGENT_SELECTED`, `WORKSPACE_PREPARED`, `WORKSPACE_PREPARATION_FAILED`, `MEMORY_RETRIEVED`, `AGENT_ANALYSIS_STARTED`, `AGENT_ANALYSIS_COMPLETED`, `RECONCILIATION_STARTED`, `RECONCILIATION_COMPLETED`, `IMPLEMENTATION_PLAN_CREATED`, `IMPLEMENTATION_STARTED`, `IMPLEMENTATION_COMPLETED`, `REVIEW_STARTED`, `REVIEW_COMPLETED`, `REVIEW_BLOCKING_ISSUE_FOUND`, `TASK_COMPLETED`, `CANDIDATE_LESSONS_GENERATED`, `TASK_FAILED`, `TASK_BLOCKED`, `TASK_CANCELLED`, `TASK_RETRIED`. `WORKSPACE_PREPARED`/`WORKSPACE_PREPARATION_FAILED` only ever fire for real-mode tasks. `CANDIDATE_LESSONS_GENERATED` only fires for tasks that reach `completed` — it fires with `count: 0` when no reconciliation decision met the confidence bar, which is an expected, not an error, outcome. `TASK_RETRIED` fires once per `POST /tasks/:id/retry` call, immediately followed by the same sequence a fresh task produces (`REPOSITORY_INSPECTION_STARTED`, ...) — the event log is one continuous history across every attempt, never truncated or replaced. A `TASK_FAILED` event from the startup crash-recovery sweep (see [AGENT_WORKFLOW.md](AGENT_WORKFLOW.md#retry--restart-from-inspection)) looks identical to any other `TASK_FAILED` event except its message names the stage the task was interrupted at.
+Event types: `TASK_CREATED`, `REPOSITORY_INSPECTION_STARTED`, `REPOSITORY_INSPECTION_COMPLETED`, `AGENT_SELECTED`, `WORKSPACE_PREPARED`, `WORKSPACE_PREPARATION_FAILED`, `MEMORY_RETRIEVED`, `AGENT_ANALYSIS_STARTED`, `AGENT_ANALYSIS_COMPLETED`, `RECONCILIATION_STARTED`, `RECONCILIATION_COMPLETED`, `IMPLEMENTATION_PLAN_CREATED`, `IMPLEMENTATION_STARTED`, `IMPLEMENTATION_COMPLETED`, `REVIEW_STARTED`, `REVIEW_COMPLETED`, `REVIEW_BLOCKING_ISSUE_FOUND`, `TASK_COMPLETED`, `CANDIDATE_LESSONS_GENERATED`, `TASK_FAILED`, `TASK_BLOCKED`, `TASK_CANCELLED`, `TASK_RETRIED`, `WORKSPACE_CLEANED`, `WORKSPACE_CLEANUP_FAILED`. `WORKSPACE_PREPARED`/`WORKSPACE_PREPARATION_FAILED` only ever fire for real-mode tasks. `CANDIDATE_LESSONS_GENERATED` only fires for tasks that reach `completed` — it fires with `count: 0` when no reconciliation decision met the confidence bar, which is an expected, not an error, outcome. `TASK_RETRIED` fires once per `POST /tasks/:id/retry` call, immediately followed by the same sequence a fresh task produces (`REPOSITORY_INSPECTION_STARTED`, ...) — the event log is one continuous history across every attempt, never truncated or replaced. A `TASK_FAILED` event from the startup crash-recovery sweep (see [AGENT_WORKFLOW.md](AGENT_WORKFLOW.md#retry--restart-from-inspection)) looks identical to any other `TASK_FAILED` event except its message names the stage the task was interrupted at. `WORKSPACE_CLEANED`/`WORKSPACE_CLEANUP_FAILED` fire once per `POST /tasks/:id/cleanup-workspace` call (Phase 32) and never fire automatically.
 
 ## `GET /tasks/:id/agents`
 
@@ -175,7 +191,7 @@ Body: any of `{ "content"?: string, "technology"?: string[], "taskType"?: string
 
 ## Real-execution-only fields
 
-For real-mode tasks, `Task.executionWorkspace` (`{ workspacePath, branch, baseRevision, status, createdAt, error? }`) and `ExecutionReport.diff` (`{ baseRevision, branch, files: [{ path, additions, deletions }], summary }`) / `ExecutionReport.durationMs` are populated once the corresponding pipeline stage runs. Both are `undefined` for mock-mode tasks. See [REAL_EXECUTION.md](REAL_EXECUTION.md).
+For real-mode tasks, `Task.executionWorkspace` (`{ workspacePath, branch, baseRevision, status, createdAt, error?, cleanupStatus?, cleanedAt?, cleanupError? }`) and `ExecutionReport.diff` (`{ baseRevision, branch, files: [{ path, additions, deletions }], summary }`) / `ExecutionReport.durationMs` are populated once the corresponding pipeline stage runs. Both are `undefined` for mock-mode tasks. `cleanupStatus` is absent/`"ready"` until a developer calls `POST /tasks/:id/cleanup-workspace` (Phase 32) — absence is equivalent to `"ready"`, not a migration gap. See [REAL_EXECUTION.md](REAL_EXECUTION.md).
 
 ---
 
