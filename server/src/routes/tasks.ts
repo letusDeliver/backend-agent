@@ -5,9 +5,12 @@ import { config } from "../config.js";
 import { resolveRepositoryPath } from "../utils/paths.js";
 import { ApiError } from "../middleware/errorHandler.js";
 import { describeUnresolvedQuestion, hasUnresolvedMaterialConflict, recomputeStatus } from "../orchestrator/reconciliation.js";
-import type { Task, TaskCreateInput } from "../types/index.js";
+import { RetryNotAllowedError, TaskNotFoundError } from "../orchestrator/taskOrchestrator.js";
+import type { AgentType, Task, TaskCreateInput } from "../types/index.js";
 
 export const tasksRouter = Router();
+
+const ALL_AGENTS: AgentType[] = ["python-backend", "node-backend", "database"];
 
 function validateCreateInput(body: unknown): TaskCreateInput {
   if (typeof body !== "object" || body === null) {
@@ -52,6 +55,7 @@ tasksRouter.post("/tasks", async (req, res, next) => {
       currentStage: "created",
       executionMode: config.executionMode,
       reviewRetryCount: 0,
+      attempt: 1,
       createdAt: now,
       updatedAt: now,
     };
@@ -126,6 +130,18 @@ tasksRouter.post("/tasks/:id/cancel", async (req, res, next) => {
     await eventBus.publish(task.id, "TASK_CANCELLED", "Task cancelled by developer request.");
     res.json({ task });
   } catch (err) {
+    next(err);
+  }
+});
+
+tasksRouter.post("/tasks/:id/retry", async (req, res, next) => {
+  try {
+    await orchestrator.retry(req.params.id);
+    const task = await taskStore.get(req.params.id);
+    res.status(202).json({ task });
+  } catch (err) {
+    if (err instanceof TaskNotFoundError) return next(new ApiError(404, err.message));
+    if (err instanceof RetryNotAllowedError) return next(new ApiError(409, err.message));
     next(err);
   }
 });
@@ -273,6 +289,98 @@ tasksRouter.get("/tasks/:id/handoff", async (req, res, next) => {
     if (!task) throw new ApiError(404, "Task not found.");
     const handoff = await artifactStore.readFinalHandoff(task.id);
     const markdown = await artifactStore.readFinalHandoffMarkdown(task.id);
+    res.json({ handoff, markdown });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// --- Previous attempts (Phase 31) — read-only history archived by retry() ---
+
+function parseAttempt(raw: string): number {
+  const n = Number(raw);
+  if (!Number.isInteger(n) || n < 1) throw new ApiError(400, "Invalid attempt number.");
+  return n;
+}
+
+tasksRouter.get("/tasks/:id/attempts", async (req, res, next) => {
+  try {
+    const task = await taskStore.get(req.params.id);
+    if (!task) throw new ApiError(404, "Task not found.");
+    const attempts = await artifactStore.listAttempts(task.id);
+    res.json({ attempts });
+  } catch (err) {
+    next(err);
+  }
+});
+
+tasksRouter.get("/tasks/:id/attempts/:attempt/agents", async (req, res, next) => {
+  try {
+    const task = await taskStore.get(req.params.id);
+    if (!task) throw new ApiError(404, "Task not found.");
+    const attempt = parseAttempt(req.params.attempt);
+    const reports = await artifactStore.readArchivedSpecialistReports(task.id, attempt, ALL_AGENTS);
+    res.json({ reports });
+  } catch (err) {
+    next(err);
+  }
+});
+
+tasksRouter.get("/tasks/:id/attempts/:attempt/reconciliation", async (req, res, next) => {
+  try {
+    const task = await taskStore.get(req.params.id);
+    if (!task) throw new ApiError(404, "Task not found.");
+    const attempt = parseAttempt(req.params.attempt);
+    const reconciliation = await artifactStore.readArchivedReconciliation(task.id, attempt);
+    res.json({ reconciliation });
+  } catch (err) {
+    next(err);
+  }
+});
+
+tasksRouter.get("/tasks/:id/attempts/:attempt/implementation-plan", async (req, res, next) => {
+  try {
+    const task = await taskStore.get(req.params.id);
+    if (!task) throw new ApiError(404, "Task not found.");
+    const attempt = parseAttempt(req.params.attempt);
+    const plan = await artifactStore.readArchivedImplementationPlan(task.id, attempt);
+    res.json({ plan });
+  } catch (err) {
+    next(err);
+  }
+});
+
+tasksRouter.get("/tasks/:id/attempts/:attempt/execution-report", async (req, res, next) => {
+  try {
+    const task = await taskStore.get(req.params.id);
+    if (!task) throw new ApiError(404, "Task not found.");
+    const attempt = parseAttempt(req.params.attempt);
+    const report = await artifactStore.readArchivedExecutionReport(task.id, attempt);
+    res.json({ report });
+  } catch (err) {
+    next(err);
+  }
+});
+
+tasksRouter.get("/tasks/:id/attempts/:attempt/reviews", async (req, res, next) => {
+  try {
+    const task = await taskStore.get(req.params.id);
+    if (!task) throw new ApiError(404, "Task not found.");
+    const attempt = parseAttempt(req.params.attempt);
+    const reviews = await artifactStore.readArchivedReviews(task.id, attempt, ALL_AGENTS);
+    res.json({ reviews });
+  } catch (err) {
+    next(err);
+  }
+});
+
+tasksRouter.get("/tasks/:id/attempts/:attempt/handoff", async (req, res, next) => {
+  try {
+    const task = await taskStore.get(req.params.id);
+    if (!task) throw new ApiError(404, "Task not found.");
+    const attempt = parseAttempt(req.params.attempt);
+    const handoff = await artifactStore.readArchivedFinalHandoff(task.id, attempt);
+    const markdown = await artifactStore.readArchivedFinalHandoffMarkdown(task.id, attempt);
     res.json({ handoff, markdown });
   } catch (err) {
     next(err);

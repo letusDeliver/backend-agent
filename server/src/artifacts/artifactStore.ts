@@ -1,4 +1,5 @@
-import { mkdir, readFile, writeFile, appendFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile, appendFile, rename, readdir } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import path from "node:path";
 import { config } from "../config.js";
 import { resolveWithinRoot } from "../utils/paths.js";
@@ -101,21 +102,20 @@ export class ArtifactStore {
     return this.writeJson(report.taskId, `reviews/review-${report.agent}-attempt-${report.attempt}.json`, report);
   }
 
-  async readLatestReviews(taskId: string, agents: AgentType[]): Promise<ReviewReport[]> {
-    // Reviews are read back from the events/execution flow rather than
-    // globbed here; the orchestrator keeps the latest in-memory and persists
-    // every attempt for audit. See TaskOrchestrator.
-    const root = this.workspaceRoot(taskId);
-    const { readdir } = await import("node:fs/promises");
+  // Reviews are read back from the events/execution flow rather than
+  // globbed here; the orchestrator keeps the latest in-memory and persists
+  // every attempt for audit. See TaskOrchestrator. Shared between the live
+  // `reviews/` directory and an archived `attempts/<n>/reviews/` one.
+  private async readReviewsFrom(reviewsDir: string, agents: AgentType[]): Promise<ReviewReport[]> {
     let files: string[] = [];
     try {
-      files = await readdir(path.join(root, "reviews"));
+      files = await readdir(reviewsDir);
     } catch {
       return [];
     }
     const latestByAgent = new Map<AgentType, ReviewReport>();
     for (const file of files) {
-      const raw = await readFile(path.join(root, "reviews", file), "utf-8");
+      const raw = await readFile(path.join(reviewsDir, file), "utf-8");
       const report = JSON.parse(raw) as ReviewReport;
       const existing = latestByAgent.get(report.agent);
       if (!existing || report.attempt > existing.attempt) {
@@ -123,6 +123,10 @@ export class ArtifactStore {
       }
     }
     return agents.map((a) => latestByAgent.get(a)).filter((r): r is ReviewReport => r !== undefined);
+  }
+
+  readLatestReviews(taskId: string, agents: AgentType[]): Promise<ReviewReport[]> {
+    return this.readReviewsFrom(path.join(this.workspaceRoot(taskId), "reviews"), agents);
   }
 
   async writeFinalHandoff(handoff: FinalHandoff, markdown: string): Promise<void> {
@@ -179,5 +183,95 @@ export class ArtifactStore {
     const target = resolveWithinRoot(root, path.join("context", filename));
     await mkdir(path.dirname(target), { recursive: true });
     await writeFile(target, content, "utf-8");
+  }
+
+  /**
+   * Moves the current attempt's artifacts (everything except `task.json`
+   * and `events.log.jsonl`, which are never attempt-scoped — Phase 31
+   * proposal §5-6) into `attempts/<attempt>/`, preserving their relative
+   * layout so the `readArchived*` methods below can reuse the same relative
+   * paths as their live counterparts.
+   *
+   * Each entry is moved with a single `rename()`. If one throws partway
+   * through, entries already moved stay moved (nothing is lost — they are
+   * simply findable under `attempts/<attempt>/` on a retried call) and
+   * entries not yet reached stay at the top level; the caller
+   * (`TaskOrchestrator.retry()`) must not reset `task.json` unless this
+   * resolves without throwing, so a retry after a failed archive is safe to
+   * attempt again.
+   */
+  async archiveAttempt(taskId: string, attempt: number): Promise<void> {
+    const root = this.workspaceRoot(taskId);
+    const attemptDir = path.join(root, "attempts", String(attempt));
+    await mkdir(attemptDir, { recursive: true });
+
+    const entries = [
+      "specialist-reports",
+      "reconciliation.json",
+      "implementation-plan.json",
+      "execution-report.json",
+      "reviews",
+      "context",
+      "final-handoff.json",
+      "final-handoff.md",
+    ];
+
+    for (const entry of entries) {
+      const src = path.join(root, entry);
+      if (!existsSync(src)) continue;
+      const dest = path.join(attemptDir, entry);
+      await rename(src, dest);
+    }
+  }
+
+  /** Attempt numbers with archived artifacts, ascending. */
+  async listAttempts(taskId: string): Promise<number[]> {
+    const attemptsDir = path.join(this.workspaceRoot(taskId), "attempts");
+    let entries: string[];
+    try {
+      entries = await readdir(attemptsDir);
+    } catch {
+      return [];
+    }
+    return entries
+      .map((e) => Number(e))
+      .filter((n) => Number.isInteger(n) && n > 0)
+      .sort((a, b) => a - b);
+  }
+
+  readArchivedSpecialistReports(taskId: string, attempt: number, agents: AgentType[]): Promise<SpecialistReport[]> {
+    return Promise.all(
+      agents.map((agent) => this.readJson<SpecialistReport>(taskId, `attempts/${attempt}/specialist-reports/specialist-${agent}.json`))
+    ).then((reports) => reports.filter((r): r is SpecialistReport => r !== null));
+  }
+
+  readArchivedReconciliation(taskId: string, attempt: number): Promise<Reconciliation | null> {
+    return this.readJson<Reconciliation>(taskId, `attempts/${attempt}/reconciliation.json`);
+  }
+
+  readArchivedImplementationPlan(taskId: string, attempt: number): Promise<ImplementationPlan | null> {
+    return this.readJson<ImplementationPlan>(taskId, `attempts/${attempt}/implementation-plan.json`);
+  }
+
+  readArchivedExecutionReport(taskId: string, attempt: number): Promise<ExecutionReport | null> {
+    return this.readJson<ExecutionReport>(taskId, `attempts/${attempt}/execution-report.json`);
+  }
+
+  readArchivedReviews(taskId: string, attempt: number, agents: AgentType[]): Promise<ReviewReport[]> {
+    return this.readReviewsFrom(path.join(this.workspaceRoot(taskId), "attempts", String(attempt), "reviews"), agents);
+  }
+
+  readArchivedFinalHandoff(taskId: string, attempt: number): Promise<FinalHandoff | null> {
+    return this.readJson<FinalHandoff>(taskId, `attempts/${attempt}/final-handoff.json`);
+  }
+
+  async readArchivedFinalHandoffMarkdown(taskId: string, attempt: number): Promise<string | null> {
+    const root = this.workspaceRoot(taskId);
+    try {
+      return await readFile(resolveWithinRoot(root, `attempts/${attempt}/final-handoff.md`), "utf-8");
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === "ENOENT") return null;
+      throw err;
+    }
   }
 }

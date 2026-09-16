@@ -24,7 +24,9 @@ export class JsonFileTaskStore implements TaskStore {
     try {
       const raw = await readFile(this.filePath, "utf-8");
       const list = JSON.parse(raw) as Task[];
-      this.cache = new Map(list.map((t) => [t.id, t]));
+      // Migration safety: tasks persisted before Phase 31 have no `attempt`
+      // field. Treat them as attempt 1 rather than failing to load.
+      this.cache = new Map(list.map((t) => [t.id, t.attempt === undefined ? { ...t, attempt: 1 } : t]));
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code === "ENOENT") {
         this.cache = new Map();

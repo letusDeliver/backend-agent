@@ -24,6 +24,16 @@ import type {
   Task,
 } from "../types/index.js";
 
+export class TaskNotFoundError extends Error {}
+export class RetryNotAllowedError extends Error {}
+
+/**
+ * Statuses `TaskOrchestrator.retry()` accepts a task from (Phase 31
+ * proposal §8/§18) — every other status, including every in-flight one,
+ * is rejected so a retry can never race a still-running attempt.
+ */
+export const RETRYABLE_STATUSES = new Set<Task["status"]>(["failed", "blocked", "cancelled"]);
+
 /**
  * Coordinates the full pipeline described in orchestrator/ORCHESTRATOR.md:
  * inspect -> route -> [prepare isolated workspace, real mode only] ->
@@ -201,6 +211,47 @@ export class TaskOrchestrator {
     } catch (err) {
       await this.handleRunFailure(taskId, err);
     }
+  }
+
+  /**
+   * Entry point for `POST /tasks/:id/retry` (Phase 31). Restarts a
+   * `failed`/`blocked`/`cancelled` task from repository inspection — not a
+   * resume of the failed stage (proposal §9). Archives the current
+   * attempt's artifacts before resetting any task state; if archiving
+   * throws, this rejects without having touched `task.status`/`attempt`,
+   * so the task is untouched and safe to retry again (proposal §7).
+   *
+   * The full pipeline (`run()`) is fired without being awaited here, so
+   * callers that await `retry()` only wait for the fast archive+reset step,
+   * not the whole run — matching `/start`'s existing fire-and-forget shape.
+   */
+  async retry(taskId: string): Promise<void> {
+    const task = await this.taskStore.get(taskId);
+    if (!task) throw new TaskNotFoundError(`Task ${taskId} not found`);
+    if (!RETRYABLE_STATUSES.has(task.status)) {
+      throw new RetryNotAllowedError(`Task cannot be retried from status "${task.status}".`);
+    }
+
+    await this.artifacts.archiveAttempt(task.id, task.attempt);
+
+    const previousAttempt = task.attempt;
+    task.attempt = previousAttempt + 1;
+    task.status = "created";
+    task.currentStage = "created";
+    task.error = undefined;
+    task.executionWorkspace = undefined;
+    task.selectedAgents = [];
+    task.reviewRetryCount = 0;
+    const retried = await this.persist(task);
+
+    await this.events.publish(
+      taskId,
+      "TASK_RETRIED",
+      `Retry started — attempt ${retried.attempt} (previous attempt ${previousAttempt} archived).`,
+      { attempt: retried.attempt, previousAttempt }
+    );
+
+    void this.run(taskId);
   }
 
   /**

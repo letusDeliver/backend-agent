@@ -73,6 +73,13 @@ export interface Task {
   executionMode: ExecutionMode;
   reviewRetryCount: number;
   executionWorkspace?: RealExecutionWorkspace;
+  /**
+   * 1 for a task's first run. Incremented by `TaskOrchestrator.retry()`;
+   * the previous attempt's artifacts are archived under
+   * `tasks/<id>/attempts/<n>/` (Phase 31) rather than duplicated onto this
+   * record — see `ArtifactStore.archiveAttempt()`.
+   */
+  attempt: number;
   createdAt: string;
   updatedAt: string;
   error?: string;
@@ -100,7 +107,8 @@ export type EventType =
   | "TASK_COMPLETED"
   | "TASK_FAILED"
   | "TASK_BLOCKED"
-  | "TASK_CANCELLED";
+  | "TASK_CANCELLED"
+  | "TASK_RETRIED";
 
 export interface TaskEvent {
   id: string;
