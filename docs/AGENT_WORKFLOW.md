@@ -50,6 +50,42 @@ After implementation, each selected specialist reviews the result from its own d
 
 If two specialists' blocking findings are themselves in material conflict (the same category/subject/polarity check reconciliation uses), the orchestrator doesn't attempt a corrective pass that can't satisfy both — it appends the conflict to the task's reconciliation record and blocks immediately, resolved through the same conflict-resolution endpoint described above.
 
+## Retry — restart from inspection
+
+A task that reaches `failed`, `blocked` (for any reason, including a Phase 30 conflict), or
+`cancelled` is never a dead end. `POST /tasks/:id/retry` restarts it from **repository
+inspection** — not a resume of the failed stage. Routing, memory retrieval, specialist analysis,
+reconciliation, planning, implementation and review all run again exactly as they would for a
+brand-new task, so a fix the developer made to the repository between attempts is picked up
+automatically. `Task.attempt` increments (starts at 1); the prior attempt's specialist reports,
+reconciliation, plan, execution report and reviews are archived to
+`tasks/<id>/attempts/<n>/` and stay readable, unmodified, via `GET
+/tasks/:id/attempts/:attempt/...` — never deleted, never duplicated onto the live `Task` record.
+`task.json` and `events.log.jsonl` are never archived: the event log is one continuous history
+across every attempt, with a `TASK_RETRIED` event marking each boundary.
+
+This is a deliberately different workflow from **conflict resolution**
+(`POST /tasks/:id/reconciliation/conflicts/:conflictId/resolve`, see above): resolving a conflict
+*preserves* the current reconciliation and continues from planning; retrying *discards* the
+current attempt's progress and starts over. For a conflict-blocked task the UI offers both —
+resolution stays the primary, narrower path for the case it was built for, but a developer may
+legitimately prefer to just start over, so retry remains available as a fallback for every
+`blocked` task, not only conflict ones.
+
+Real-mode safety: retry re-runs `prepareRealExecutionWorkspace()` exactly like a fresh task does,
+and `GitWorktreeManager.prepare()` already force-recreates the worktree/branch from the
+repository's current `HEAD` before any implementation call — so a retried real-mode attempt is
+never at risk of Claude Code running against a stale worktree carrying a prior attempt's
+uncommitted or committed changes. See `docs/adr/0007-retry-restarts-from-inspection.md`.
+
+**Startup crash recovery**: if the orchestrator process dies mid-pipeline, a task can be left
+stuck in a non-terminal, non-`created` status forever with no process left to finish it. Before
+the server starts accepting requests, a startup sweep (`recoverOrphanedTasks()`) finds any task in
+such a state, transitions it to `failed` with an error naming the stage it was interrupted at, and
+appends a `TASK_FAILED` event — making the failure visible and retryable rather than a silent
+stall. A task resting in `created` (never started) or already in a terminal status is left
+untouched.
+
 ## Final handoff
 
 Every completed task writes `tasks/<task-id>/final-handoff.json` (structured) and `final-handoff.md` (human-readable), summarizing: agents used, files changed, test results, review results, architecture decision count, and warnings — all pulled from the same artifacts the UI reads, never re-derived or re-claimed separately.

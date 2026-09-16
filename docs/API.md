@@ -47,6 +47,54 @@ Begins asynchronous orchestration (inspect → route → [prepare isolated works
 
 Cancels a task that is not yet in a terminal state (`completed`, `failed`, `blocked`, `cancelled`). Marks the task `cancelled` immediately and, for real-mode tasks, kills any in-flight `claude` CLI process. Returns `200` with the updated task, or `409` if it's already terminal, or `404` if unknown. See [REAL_EXECUTION.md](REAL_EXECUTION.md#cancellation).
 
+## `POST /tasks/:id/retry`
+
+Restarts a `failed`, `blocked` or `cancelled` task from repository inspection — not a resume of
+the failed stage; see [AGENT_WORKFLOW.md](AGENT_WORKFLOW.md#retry--restart-from-inspection).
+Archives the current attempt's artifacts (everything under `GET /tasks/:id/attempts/:attempt/...`
+below) before resetting the task, increments `Task.attempt`, and returns the task with
+`status: "created"`. Fires the pipeline asynchronously, the same way `POST /tasks/:id/start` does
+— poll `GET /tasks/:id` or subscribe to `GET /tasks/:id/events` for progress. `404` if the task
+doesn't exist, `409` if it is not currently `failed`, `blocked` or `cancelled` (this also covers a
+retry racing a still-in-flight task), `202` otherwise.
+
+## `GET /tasks/:id/attempts`
+
+`{ "attempts": number[] }` — archived attempt numbers, ascending. Empty until the task has been
+retried at least once.
+
+## `GET /tasks/:id/attempts/:attempt/agents`
+
+`{ "reports": SpecialistReport[] }` — that attempt's archived specialist reports.
+
+## `GET /tasks/:id/attempts/:attempt/reconciliation`
+
+`{ "reconciliation": Reconciliation | null }` — that attempt's archived reconciliation, unmodified
+since it was archived (including any conflicts and their resolutions as they stood at the time).
+
+## `GET /tasks/:id/attempts/:attempt/implementation-plan`
+
+`{ "plan": ImplementationPlan | null }`
+
+## `GET /tasks/:id/attempts/:attempt/execution-report`
+
+`{ "report": ExecutionReport | null }`
+
+## `GET /tasks/:id/attempts/:attempt/reviews`
+
+`{ "reviews": ReviewReport[] }` — latest attempt-loop review per agent, from that archived attempt.
+
+## `GET /tasks/:id/attempts/:attempt/handoff`
+
+`{ "handoff": FinalHandoff | null, "markdown": string | null }` — only populated if that attempt
+actually reached `completed` before being retried (uncommon, but possible if a developer retries a
+task that already succeeded).
+
+All `attempts/:attempt/...` routes are read-only, `404` for an unknown task, `400` for a
+non-integer/non-positive `:attempt`, and return `null`/an empty array (not `404`) for an attempt
+number that produced no artifact of that kind — the same "missing artifact is `null`, not an
+error" convention the live per-artifact GETs above already use.
+
 ## `GET /tasks/:id/events`
 
 Server-Sent Events stream. Replays full history on connect, then streams live events. Event `data` is a JSON-encoded `TaskEvent`:
@@ -55,7 +103,7 @@ Server-Sent Events stream. Replays full history on connect, then streams live ev
 { "id": "...", "taskId": "...", "type": "REPOSITORY_INSPECTION_COMPLETED", "message": "...", "data": { }, "createdAt": "..." }
 ```
 
-Event types: `TASK_CREATED`, `REPOSITORY_INSPECTION_STARTED`, `REPOSITORY_INSPECTION_COMPLETED`, `AGENT_SELECTED`, `WORKSPACE_PREPARED`, `WORKSPACE_PREPARATION_FAILED`, `MEMORY_RETRIEVED`, `AGENT_ANALYSIS_STARTED`, `AGENT_ANALYSIS_COMPLETED`, `RECONCILIATION_STARTED`, `RECONCILIATION_COMPLETED`, `IMPLEMENTATION_PLAN_CREATED`, `IMPLEMENTATION_STARTED`, `IMPLEMENTATION_COMPLETED`, `REVIEW_STARTED`, `REVIEW_COMPLETED`, `REVIEW_BLOCKING_ISSUE_FOUND`, `TASK_COMPLETED`, `CANDIDATE_LESSONS_GENERATED`, `TASK_FAILED`, `TASK_BLOCKED`, `TASK_CANCELLED`. `WORKSPACE_PREPARED`/`WORKSPACE_PREPARATION_FAILED` only ever fire for real-mode tasks. `CANDIDATE_LESSONS_GENERATED` only fires for tasks that reach `completed` — it fires with `count: 0` when no reconciliation decision met the confidence bar, which is an expected, not an error, outcome.
+Event types: `TASK_CREATED`, `REPOSITORY_INSPECTION_STARTED`, `REPOSITORY_INSPECTION_COMPLETED`, `AGENT_SELECTED`, `WORKSPACE_PREPARED`, `WORKSPACE_PREPARATION_FAILED`, `MEMORY_RETRIEVED`, `AGENT_ANALYSIS_STARTED`, `AGENT_ANALYSIS_COMPLETED`, `RECONCILIATION_STARTED`, `RECONCILIATION_COMPLETED`, `IMPLEMENTATION_PLAN_CREATED`, `IMPLEMENTATION_STARTED`, `IMPLEMENTATION_COMPLETED`, `REVIEW_STARTED`, `REVIEW_COMPLETED`, `REVIEW_BLOCKING_ISSUE_FOUND`, `TASK_COMPLETED`, `CANDIDATE_LESSONS_GENERATED`, `TASK_FAILED`, `TASK_BLOCKED`, `TASK_CANCELLED`, `TASK_RETRIED`. `WORKSPACE_PREPARED`/`WORKSPACE_PREPARATION_FAILED` only ever fire for real-mode tasks. `CANDIDATE_LESSONS_GENERATED` only fires for tasks that reach `completed` — it fires with `count: 0` when no reconciliation decision met the confidence bar, which is an expected, not an error, outcome. `TASK_RETRIED` fires once per `POST /tasks/:id/retry` call, immediately followed by the same sequence a fresh task produces (`REPOSITORY_INSPECTION_STARTED`, ...) — the event log is one continuous history across every attempt, never truncated or replaced. A `TASK_FAILED` event from the startup crash-recovery sweep (see [AGENT_WORKFLOW.md](AGENT_WORKFLOW.md#retry--restart-from-inspection)) looks identical to any other `TASK_FAILED` event except its message names the stage the task was interrupted at.
 
 ## `GET /tasks/:id/agents`
 

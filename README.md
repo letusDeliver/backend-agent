@@ -9,7 +9,7 @@ Describe a requirement, point it at a real repository, and watch an orchestrator
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.x%20%2F%206.x-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![Express](https://img.shields.io/badge/Express-4.x-000000?logo=express&logoColor=white)](https://expressjs.com/)
 [![Angular](https://img.shields.io/badge/Angular-22-DD0031?logo=angular&logoColor=white)](https://angular.dev/)
-[![Tests](https://img.shields.io/badge/tests-168%20passing-33c481)](#testing)
+[![Tests](https://img.shields.io/badge/tests-210%20passing-33c481)](#testing)
 [![CI](https://github.com/letusDeliver/backend-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/letusDeliver/backend-agent/actions/workflows/ci.yml)
 
 </div>
@@ -46,7 +46,8 @@ Every stage is inspectable. Nothing is claimed that didn't actually happen.
 - ✓ **Dual execution modes** — a safe, deterministic **mock** executor by default, and a **real** executor that drives the actual Claude Code CLI, opt-in only, never disguised as the other
 - ✓ **Bounded review loop** — blocking findings return the task to implementation automatically, up to a configurable retry limit, instead of looping forever or completing regardless
 - ✓ **Deterministic conflict detection** — reconciliation compares specialists' actual recommendations (category → subject → polarity, no LLM call), not just routing/failure signals; a material conflict blocks implementation until a developer resolves it through a dedicated API, with full evidence and provenance recorded
-- ✓ **168 automated tests** (149 backend + 18 frontend) across the routing engine, repository inspector, reconciliation/conflict-detection logic, memory retrieval/candidate-lessons/approval, API, SSE stream, git-worktree isolation, real-executor hardening (timeout/cancellation/ground-truth diff), and full end-to-end happy paths — plus a committed browser E2E test and CI running all of it on every push
+- ✓ **Task retry & startup crash recovery** — a `failed`, `blocked` or `cancelled` task is never a dead end: retry restarts it from repository inspection (picking up anything you fixed in the meantime), archives the prior attempt's full artifact history as a read-only "Attempt N", and never risks double-executing against a stale real-mode git worktree; a server restart no longer leaves a mid-flight task silently stuck — a startup sweep marks it `failed` with the stage it was interrupted at, so it's visible and retryable
+- ✓ **210 automated tests** (176 backend + 33 frontend) across the routing engine, repository inspector, reconciliation/conflict-detection logic, memory retrieval/candidate-lessons/approval, retry/attempt-archiving/startup-recovery, API, SSE stream, git-worktree isolation, real-executor hardening (timeout/cancellation/ground-truth diff), and full end-to-end happy paths — plus a committed browser E2E test and CI running all of it on every push
 - ✓ **Isolated real execution** — Claude Code runs against a dedicated git worktree/branch, never your live working tree, with a repository-safety guard, timeout, and mid-run cancellation
 - ✓ **Engineering memory, human-gated** — a completed task can produce candidate lessons; only after a developer approves one does it ever influence a later task's specialist analysis, with the full retrieval decision recorded per task
 
@@ -111,7 +112,7 @@ The platform never disguises which mode produced a result. Real mode is opt-in o
 ## Testing
 
 ```bash
-npm test              # everything (118 tests)
+npm test              # everything (209 tests: 176 backend + 33 frontend)
 npm run test:server   # backend — vitest
 npm run test:web      # frontend — jest
 npm run test:e2e      # browser E2E — playwright, mock executor, headless
