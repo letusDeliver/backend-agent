@@ -310,7 +310,7 @@ describe('TaskDetailComponent', () => {
     it('renders a Previous Attempts section listing archived attempts, expandable to a read-only view', () => {
       const task = makeTask({ status: 'completed', currentStage: 'completed', attempt: 2 });
       const taskService = makeTaskService(task);
-      taskService.listAttempts.mockReturnValue(of({ attempts: [1] }));
+      taskService.listAttempts.mockReturnValue(of({ attempts: [1], attemptSummaries: [{ attempt: 1, reachedStage: 'completed' }] }));
       taskService.getAttemptReconciliation.mockReturnValue(
         of({ reconciliation: { taskId: 'task-1', status: 'AGREED', decisions: [], agreements: [], conflicts: [], unresolvedQuestions: [], risks: [], confidencePercent: 90, createdAt: new Date().toISOString() } })
       );
@@ -330,6 +330,8 @@ describe('TaskDetailComponent', () => {
       let text = (fixture.nativeElement as HTMLElement).textContent ?? '';
       expect(text).toContain('Previous Attempts');
       expect(text).toContain('Attempt 1');
+      // Phase 34: the outcome is visible without expanding the attempt.
+      expect(text).toContain('Completed');
 
       const viewButton = Array.from((fixture.nativeElement as HTMLElement).querySelectorAll('button')).find((b) =>
         b.textContent?.includes('View artifacts')
@@ -687,5 +689,150 @@ describe('TaskDetailComponent', () => {
       expect(text).not.toContain('no ground-truth diff is produced in mock mode');
       expect(diffPatchPre(fixture)).toBeNull();
     });
+  });
+
+  describe('Non-Success Task Visibility (Phase 34)', () => {
+    it.each([
+      ['failed', 'reviewing', true, true, true, true],
+      ['cancelled', 'implementing', true, true, true, false],
+      ['cancelled', 'reconciling', true, false, false, false],
+      ['failed', 'routing', false, false, false, false],
+      ['blocked', 'reconciling', true, false, false, false],
+    ] as const)(
+      'status=%s currentStage=%s fetches reconciliation=%s plan=%s executionReport=%s reviews=%s',
+      (status, currentStage, expectReconciliation, expectPlan, expectExecutionReport, expectReviews) => {
+        const task = makeTask({ status, currentStage });
+        const taskService = configure(task);
+        const fixture = TestBed.createComponent(TaskDetailComponent);
+        fixture.detectChanges();
+
+        expect(taskService.getReconciliation.mock.calls.length > 0).toBe(expectReconciliation);
+        expect(taskService.getImplementationPlan.mock.calls.length > 0).toBe(expectPlan);
+        expect(taskService.getExecutionReport.mock.calls.length > 0).toBe(expectExecutionReport);
+        expect(taskService.getReviews.mock.calls.length > 0).toBe(expectReviews);
+        // Handoff is never fetched for a non-completed task, regardless of stage reached.
+        expect(taskService.getHandoff).not.toHaveBeenCalled();
+      }
+    );
+
+    it('renders reconciliation, plan, execution report and reviews for a failed task that reached review — previously withheld entirely', () => {
+      const task = makeTask({ status: 'failed', currentStage: 'reviewing', error: 'claude CLI exited with code 1' });
+      const taskService = makeTaskService(task);
+      taskService.getReconciliation.mockReturnValue(
+        of({ reconciliation: { taskId: 'task-1', status: 'AGREED', decisions: [], agreements: [], conflicts: [], unresolvedQuestions: [], risks: [], confidencePercent: 90, createdAt: new Date().toISOString() } })
+      );
+      taskService.getImplementationPlan.mockReturnValue(
+        of({ plan: { taskId: 'task-1', summary: 'Add the endpoint.', files: [{ path: 'a.ts', description: 'route' }], validationCommands: [], createdAt: new Date().toISOString() } })
+      );
+      taskService.getExecutionReport.mockReturnValue(
+        of({ report: { taskId: 'task-1', executionMode: 'mock', status: 'failed', changedFiles: ['a.ts'], tests: [], commandsExecuted: [], notes: ['boom'], createdAt: new Date().toISOString() } })
+      );
+      taskService.getReviews.mockReturnValue(
+        of({ reviews: [{ agent: 'node-backend', taskId: 'task-1', status: 'FAIL', findings: [{ summary: 'blocking issue', severity: 'blocking', recommendation: 'fix it' }], executionMode: 'mock', createdAt: new Date().toISOString(), attempt: 3 }] })
+      );
+      TestBed.configureTestingModule({
+        imports: [TaskDetailComponent],
+        providers: [
+          { provide: TaskService, useValue: taskService },
+          { provide: ActivatedRoute, useValue: { snapshot: { paramMap: convertToParamMap({ id: task.id }) } } },
+        ],
+      });
+      const fixture = TestBed.createComponent(TaskDetailComponent);
+      fixture.detectChanges();
+
+      const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
+      expect(text).toContain('Add the endpoint.');
+      expect(text).toContain('blocking issue');
+    });
+
+    it('shows a truthful Outcome summary for a failed task, without inventing a root cause', () => {
+      const task = makeTask({ status: 'failed', currentStage: 'implementing', error: 'claude CLI exited with code 1' });
+      configure(task);
+      const fixture = TestBed.createComponent(TaskDetailComponent);
+      fixture.detectChanges();
+
+      const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
+      expect(text).toContain('Outcome');
+      expect(text).toContain('Task failed during implementation.');
+    });
+
+    it('shows an Outcome summary for a cancelled task even though task.error is empty', () => {
+      const task = makeTask({ status: 'cancelled', currentStage: 'reviewing' });
+      configure(task);
+      const fixture = TestBed.createComponent(TaskDetailComponent);
+      fixture.detectChanges();
+
+      const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
+      expect(text).toContain('Task was cancelled during review.');
+    });
+
+    it('does not show an Outcome summary for a completed task', () => {
+      const completed = makeTask({ status: 'completed', currentStage: 'completed' });
+      configure(completed);
+      const fixture = TestBed.createComponent(TaskDetailComponent);
+      fixture.detectChanges();
+      expect(fixture.nativeElement.querySelector('.outcome-card')).toBeNull();
+    });
+
+    it('does not show an Outcome summary for a live, non-terminal task', () => {
+      const live = makeTask({ status: 'implementing', currentStage: 'implementing' });
+      configure(live);
+      const fixture = TestBed.createComponent(TaskDetailComponent);
+      fixture.detectChanges();
+      expect(fixture.nativeElement.querySelector('.outcome-card')).toBeNull();
+    });
+
+    it('lists Resolve/Retry/Cleanup as next actions only when each is actually eligible', () => {
+      const task = makeTask({
+        status: 'blocked',
+        currentStage: 'reconciling',
+        error: 'Reconciliation found 1 unresolved material engineering conflict(s).',
+      });
+      const taskService = makeTaskService(task);
+      taskService.getReconciliation.mockReturnValue(
+        of({
+          reconciliation: makeConflictReconciliation(),
+        })
+      );
+      TestBed.configureTestingModule({
+        imports: [TaskDetailComponent],
+        providers: [
+          { provide: TaskService, useValue: taskService },
+          { provide: ActivatedRoute, useValue: { snapshot: { paramMap: convertToParamMap({ id: task.id }) } } },
+        ],
+      });
+      const fixture = TestBed.createComponent(TaskDetailComponent);
+      fixture.detectChanges();
+
+      const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
+      expect(text).toContain('Resolve the conflict below');
+      expect(text).toContain('Retry');
+      // Cleanup is never offered for a blocked task (Phase 32 invariant) —
+      // the Outcome summary must not claim it's available.
+      expect(text).not.toContain('Clean up the isolated workspace');
+    });
+
+    it.each([
+      ['blocked', 'reconciling'],
+      ['failed', 'implementing'],
+      ['cancelled', 'reviewing'],
+    ] as const)(
+      "status=%s currentStage=%s: stages before are 'done', the stop point is 'stopped', later stages are 'pending'",
+      (status, currentStage) => {
+        const task = makeTask({ status, currentStage });
+        configure(task);
+        const fixture = TestBed.createComponent(TaskDetailComponent);
+        fixture.detectChanges();
+        const component = fixture.componentInstance;
+
+        const stopIndex = component.stages.findIndex((s) => s.key === currentStage);
+        component.stages.forEach((stage, i) => {
+          const state = component.stageState(stage);
+          if (i < stopIndex) expect(state).toBe('done');
+          else if (i === stopIndex) expect(state).toBe('stopped');
+          else expect(state).toBe('pending');
+        });
+      }
+    );
   });
 });

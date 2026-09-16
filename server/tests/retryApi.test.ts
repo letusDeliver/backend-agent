@@ -89,6 +89,13 @@ describe("POST /tasks/:id/retry", () => {
     const attemptsRes = await request(app).get(`/api/tasks/${taskId}/attempts`);
     expect(attemptsRes.status).toBe(200);
     expect(attemptsRes.body.attempts).toEqual([1]);
+    // Phase 34: additive per-attempt outcome summary, driven purely by
+    // which artifact files exist for the attempt (never a guessed status —
+    // see ArtifactStore.describeArchivedAttempt). This requirement
+    // ("Add a GET /health endpoint.") reaches real completion in mock mode
+    // before this test forces the live task to "blocked" above, so the
+    // archived attempt genuinely has a final-handoff.json.
+    expect(attemptsRes.body.attemptSummaries).toEqual([{ attempt: 1, reachedStage: "completed" }]);
 
     const reconciliationRes = await request(app).get(`/api/tasks/${taskId}/attempts/1/reconciliation`);
     expect(reconciliationRes.status).toBe(200);
