@@ -951,3 +951,34 @@ describe('TaskDetailComponent — stage/specialist timing (Phase 40)', () => {
     expect(component.totalElapsedLabel()).toBe('4.0s');
   });
 });
+
+describe('TaskDetailComponent — live implementation progress (Phase 41)', () => {
+  it('filters IMPLEMENTATION_PROGRESS events out of the generic event stream, in order', () => {
+    const task = makeTask({ status: 'implementing', currentStage: 'implementing' });
+    configure(task);
+    const fixture = TestBed.createComponent(TaskDetailComponent);
+    fixture.detectChanges();
+    const component = fixture.componentInstance;
+
+    const progressA: TaskEvent = { id: 'p1', taskId: 'task-1', type: 'IMPLEMENTATION_PROGRESS', message: 'Write: src/routes/health.ts', createdAt: '2026-01-01T00:00:01.000Z', data: { kind: 'tool_use', tool: 'Write', detail: 'src/routes/health.ts' } };
+    const progressB: TaskEvent = { id: 'p2', taskId: 'task-1', type: 'IMPLEMENTATION_PROGRESS', message: 'Bash: npm test', createdAt: '2026-01-01T00:00:02.000Z', data: { kind: 'tool_use', tool: 'Bash', detail: 'npm test' } };
+    component.events.set([makeEvent('IMPLEMENTATION_STARTED', '2026-01-01T00:00:00.000Z'), progressA, progressB]);
+
+    expect(component.implementationProgressEvents()).toEqual([progressA, progressB]);
+  });
+
+  it('picks a distinct icon per tool, and a generic one for plain text progress', () => {
+    const task = makeTask({ status: 'implementing', currentStage: 'implementing' });
+    configure(task);
+    const fixture = TestBed.createComponent(TaskDetailComponent);
+    fixture.detectChanges();
+    const component = fixture.componentInstance;
+
+    const withTool = (tool: string): TaskEvent => ({ id: tool, taskId: 'task-1', type: 'IMPLEMENTATION_PROGRESS', message: '', createdAt: '2026-01-01T00:00:00.000Z', data: { tool } });
+
+    expect(component.progressIcon(withTool('Write'))).toBe('📝');
+    expect(component.progressIcon(withTool('Edit'))).toBe('✏️');
+    expect(component.progressIcon(withTool('Bash'))).toBe('▶');
+    expect(component.progressIcon({ id: 't', taskId: 'task-1', type: 'IMPLEMENTATION_PROGRESS', message: '', createdAt: '2026-01-01T00:00:00.000Z' })).toBe('💬');
+  });
+});

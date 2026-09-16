@@ -420,6 +420,33 @@ export class TaskDetailComponent implements OnInit, OnDestroy {
   }
 
   /**
+   * Phase 41: filters the same generic `events` signal every other panel
+   * on this page already reads — live streaming needed no new transport,
+   * since SSE already refetches on every event; this just recognizes one
+   * more event type and renders it as a scrolling log instead of adding a
+   * new subscription or polling mechanism.
+   */
+  implementationProgressEvents(): TaskEvent[] {
+    return this.events().filter((e) => e.type === 'IMPLEMENTATION_PROGRESS');
+  }
+
+  progressIcon(event: TaskEvent): string {
+    const tool = (event.data as { tool?: string } | undefined)?.tool;
+    switch (tool) {
+      case 'Write':
+        return '📝';
+      case 'Edit':
+        return '✏️';
+      case 'Bash':
+        return '▶';
+      case 'Read':
+        return '👁';
+      default:
+        return tool ? '🔧' : '💬';
+    }
+  }
+
+  /**
    * Phase 40: how long a completed/active stage actually took, derived
    * entirely from existing event timestamps — no backend change. Returns
    * `null` when the stage hasn't started, or has no defined timing pair

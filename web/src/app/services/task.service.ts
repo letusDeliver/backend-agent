@@ -214,6 +214,7 @@ export class TaskService {
         "SUBTASK_STARTED",
         "SUBTASK_COMPLETED",
         "SUBTASK_BLOCKED",
+        "IMPLEMENTATION_PROGRESS",
       ];
       for (const type of allEventTypes) {
         source.addEventListener(type, handler as EventListener);

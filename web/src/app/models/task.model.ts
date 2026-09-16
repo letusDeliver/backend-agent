@@ -179,7 +179,8 @@ export type EventType =
   | "SUBTASKS_DECOMPOSED"
   | "SUBTASK_STARTED"
   | "SUBTASK_COMPLETED"
-  | "SUBTASK_BLOCKED";
+  | "SUBTASK_BLOCKED"
+  | "IMPLEMENTATION_PROGRESS";
 
 export interface TaskEvent {
   id: string;

@@ -437,6 +437,25 @@
     </div>
   }
 
+  <!-- LIVE IMPLEMENTATION PROGRESS (Phase 41) -->
+  @if (implementationProgressEvents().length > 0) {
+    <h2 class="section-heading">
+      Live Implementation Progress
+      @if (task.currentStage === 'implementing') {
+        <span class="live-indicator" title="Streaming in real time from the claude CLI">● live</span>
+      }
+    </h2>
+    <div class="card progress-log">
+      @for (event of implementationProgressEvents(); track event.id) {
+        <div class="progress-row">
+          <span class="progress-icon">{{ progressIcon(event) }}</span>
+          <span class="progress-message">{{ event.message }}</span>
+          <span class="progress-time">{{ event.createdAt | date: 'HH:mm:ss' }}</span>
+        </div>
+      }
+    </div>
+  }
+
   <!-- IMPLEMENTATION -->
   @if (plan(); as plan) {
     <h2 class="section-heading">Implementation</h2>
