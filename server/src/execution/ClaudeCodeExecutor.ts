@@ -4,6 +4,7 @@ import type {
   ExecutionMode,
   ExecutionReport,
   ImplementationPlan,
+  ReconciliationConflict,
   ReviewReport,
   SpecialistReport,
   Task,
@@ -62,6 +63,30 @@ export interface DirectionDecision {
   createdAt: string;
 }
 
+/**
+ * Phase 37: invoked only when reconciliation found at least one unresolved
+ * *material* conflict (which would otherwise block the task for a developer
+ * to resolve — see `hasUnresolvedMaterialConflict()`) and the task opted
+ * into `autonomyLevel: "autonomous"`. One call per conflict, not a batch —
+ * each conflict is arbitrated and recorded independently, so a failure on
+ * one never blocks arbitration of the others. Never given repository file
+ * access, for the same reason as `decideDirection()`: this is reasoning over
+ * already-captured specialist report text (`conflict.participants`), not
+ * over repository content.
+ */
+export interface ConflictResolutionParams {
+  task: Task;
+  conflict: ReconciliationConflict;
+}
+
+export interface ConflictResolutionDecision {
+  resolution: string;
+  reason: string;
+  confidence: number;
+  executionMode: ExecutionMode;
+  createdAt: string;
+}
+
 export interface ReviewParams {
   agent: AgentType;
   task: Task;
@@ -85,6 +110,7 @@ export interface ClaudeCodeExecutor {
   runTests(params: RunTestsParams): Promise<TestRunResult[]>;
   review(params: ReviewParams): Promise<ReviewReport>;
   decideDirection(params: DirectionDecisionParams): Promise<DirectionDecision>;
+  decideConflictResolution(params: ConflictResolutionParams): Promise<ConflictResolutionDecision>;
   /**
    * Best-effort termination of any in-flight work for a task (Phase 28 —
    * cancellation). Mock execution has nothing to cancel (every call is

@@ -82,17 +82,20 @@ export interface RealExecutionWorkspace {
 
 /**
  * An audit record of one LLM-backed decision the orchestrator made on its
- * own, in place of blocking for a developer (Phase 36) — only ever produced
- * when `Task.autonomyLevel === "autonomous"`. `subject` names which
- * decision point produced it; Phase 36 only ever writes `"routing"`
- * (reconciliation-conflict arbitration is explicitly out of scope — see
- * docs/PHASE_36_PROPOSAL.md). Always appended to, never overwritten, so a
- * task carries the full history of every autonomous call made for it.
+ * own, in place of blocking for a developer — only ever produced when
+ * `Task.autonomyLevel === "autonomous"`. `subject` names which decision
+ * point produced it: `"routing"` (Phase 36 — an otherwise-ambiguous stack)
+ * or `"reconciliation-conflict"` (Phase 37 — an otherwise-blocking material
+ * conflict; `conflictId` names which one). Always appended to, never
+ * overwritten, so a task carries the full history of every autonomous call
+ * made for it. `agents` is only meaningful for `"routing"`; `conflictId`
+ * only for `"reconciliation-conflict"`.
  */
 export interface AutonomousDecision {
-  subject: "routing";
+  subject: "routing" | "reconciliation-conflict";
   decision: string;
-  agents: AgentType[];
+  agents?: AgentType[];
+  conflictId?: string;
   rationale: string;
   confidence: number;
   executionMode: ExecutionMode;

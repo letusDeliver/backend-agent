@@ -1,6 +1,8 @@
 import type {
   ClaudeCodeExecutor,
   AnalyzeParams,
+  ConflictResolutionDecision,
+  ConflictResolutionParams,
   DirectionDecision,
   DirectionDecisionParams,
   ImplementParams,
@@ -150,6 +152,25 @@ export class MockClaudeCodeExecutor implements ClaudeCodeExecutor {
         ? "MOCK / SIMULATED EXECUTION: no live reasoning was performed. Chose Python from a keyword match in the requirement text."
         : "MOCK / SIMULATED EXECUTION: no live reasoning was performed. Defaulted to Node.js (this platform's own stack) " +
           "because the requirement and repository evidence gave no real stack signal to reason from.",
+      confidence: 0.4,
+      executionMode: "mock",
+      createdAt: new Date().toISOString(),
+    };
+  }
+
+  /**
+   * Deterministic stand-in for the real arbitration call: adopts whichever
+   * participant reported the highest confidence, rather than reasoning
+   * about the actual disagreement. Same fixed low confidence (0.4) and
+   * MOCK-labeled rationale convention as `decideDirection()`.
+   */
+  async decideConflictResolution({ conflict }: ConflictResolutionParams): Promise<ConflictResolutionDecision> {
+    const top = [...conflict.participants].sort((a, b) => b.confidence - a.confidence)[0];
+    return {
+      resolution: top ? `Adopt this position: ${top.decision}` : "No participant recommendation was available to adopt.",
+      reason: top
+        ? `MOCK / SIMULATED EXECUTION: no live reasoning was performed. Chose the participant with the highest reported confidence (${top.agent}, ${top.confidence}).`
+        : "MOCK / SIMULATED EXECUTION: no live reasoning was performed, and no participant was available to choose from.",
       confidence: 0.4,
       executionMode: "mock",
       createdAt: new Date().toISOString(),

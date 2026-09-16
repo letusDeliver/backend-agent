@@ -152,12 +152,17 @@ export class TaskOrchestrator {
       }
 
       if (hasUnresolvedMaterialConflict(reconciliation)) {
-        const count = reconciliation.conflicts.filter((c) => c.materiality === "material" && !c.resolution).length;
-        await this.block(
-          task,
-          `Reconciliation found ${count} unresolved material engineering conflict(s) that require developer resolution before implementation can proceed. See reconciliation.conflicts.`
-        );
-        return;
+        if (task.autonomyLevel === "autonomous") {
+          await this.decideConflictsAutonomously(task, reconciliation);
+        }
+        if (hasUnresolvedMaterialConflict(reconciliation)) {
+          const count = reconciliation.conflicts.filter((c) => c.materiality === "material" && !c.resolution).length;
+          await this.block(
+            task,
+            `Reconciliation found ${count} unresolved material engineering conflict(s) that require developer resolution before implementation can proceed. See reconciliation.conflicts.`
+          );
+          return;
+        }
       }
 
       if (await this.isCancelled(taskId)) return;
@@ -472,6 +477,64 @@ export class TaskOrchestrator {
     } catch {
       return null;
     }
+  }
+
+  /**
+   * Phase 37. Only ever called when reconciliation found at least one
+   * unresolved *material* conflict and `task.autonomyLevel === "autonomous"`.
+   * Attempts each unresolved material conflict independently — a conflict
+   * whose arbitration call fails (or returns an unusable response) is simply
+   * left unresolved, never partially or speculatively resolved, so the
+   * caller's own `hasUnresolvedMaterialConflict()` re-check right after this
+   * call still blocks correctly on whatever remains. Mutates and persists
+   * `reconciliation`/`task` in place; does not itself decide whether to
+   * block or continue — that stays the caller's job, exactly as it already
+   * is for the human conflict-resolution API this mirrors.
+   */
+  private async decideConflictsAutonomously(task: Task, reconciliation: Reconciliation): Promise<void> {
+    const unresolved = reconciliation.conflicts.filter((c) => c.materiality === "material" && !c.resolution);
+    let anyResolved = false;
+
+    for (const conflict of unresolved) {
+      try {
+        const result = await this.executor.decideConflictResolution({ task, conflict });
+        if (!result.resolution) continue;
+
+        // Computed before mutating the conflict — same convention as the
+        // human resolution route (routes/tasks.ts) — describeUnresolvedQuestion
+        // is a pure function of the conflict's decision content, not its
+        // resolution state.
+        const questionText = describeUnresolvedQuestion(conflict);
+        conflict.resolution = {
+          resolution: result.resolution,
+          reason: result.reason,
+          resolvedBy: "autonomous-arbitration",
+          resolvedAt: result.createdAt,
+        };
+        reconciliation.unresolvedQuestions = reconciliation.unresolvedQuestions.filter((q) => q !== questionText);
+        anyResolved = true;
+
+        const decision: AutonomousDecision = {
+          subject: "reconciliation-conflict",
+          conflictId: conflict.id,
+          decision: `Autonomous resolution for "${conflict.subject}" (${conflict.category}): ${result.resolution}`,
+          rationale: result.reason,
+          confidence: result.confidence,
+          executionMode: result.executionMode,
+          createdAt: result.createdAt,
+        };
+        task.autonomousDecisions = [...(task.autonomousDecisions ?? []), decision];
+        await this.events.publish(task.id, "AUTONOMOUS_DECISION_MADE", decision.decision, { decision });
+      } catch {
+        // Left unresolved — hasUnresolvedMaterialConflict() still blocks
+        // correctly on this one if nothing else clears it.
+      }
+    }
+
+    if (!anyResolved) return;
+    reconciliation.status = recomputeStatus(reconciliation);
+    await this.artifacts.writeReconciliation(reconciliation);
+    await this.persist(task);
   }
 
   /**
