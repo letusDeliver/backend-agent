@@ -239,6 +239,41 @@ export class ArtifactStore {
       .sort((a, b) => a - b);
   }
 
+  /**
+   * The furthest pipeline stage an archived attempt's artifacts show it
+   * reached (Phase 34) — a `STAGE_SEQUENCE`-compatible key
+   * (`analyzing`/`reconciling`/`planning`/`implementing`/`reviewing`/
+   * `completed`), or `"early"` if not even specialist reports exist yet.
+   *
+   * Deliberately does **not** attempt to say whether the attempt ended
+   * `failed`/`blocked`/`cancelled` — that status is never archived (Phase
+   * 31 §5-6: only `task.json`/`events.log.jsonl` are excluded from
+   * archiving, and `task.json` is never duplicated per-attempt in the first
+   * place), so claiming a specific terminal status here would be inventing
+   * a fact the platform doesn't actually have for a past attempt. Which
+   * stage was reached, in contrast, is directly provable from which files
+   * exist — cheap existence checks only, no JSON parsing needed.
+   */
+  async describeArchivedAttempt(taskId: string, attempt: number): Promise<string> {
+    const attemptDir = path.join(this.workspaceRoot(taskId), "attempts", String(attempt));
+    const fileExists = (relative: string) => existsSync(path.join(attemptDir, relative));
+    const dirHasFiles = async (relative: string): Promise<boolean> => {
+      try {
+        return (await readdir(path.join(attemptDir, relative))).length > 0;
+      } catch {
+        return false;
+      }
+    };
+
+    if (fileExists("final-handoff.json")) return "completed";
+    if (await dirHasFiles("reviews")) return "reviewing";
+    if (fileExists("execution-report.json")) return "implementing";
+    if (fileExists("implementation-plan.json")) return "planning";
+    if (fileExists("reconciliation.json")) return "reconciling";
+    if (await dirHasFiles("specialist-reports")) return "analyzing";
+    return "early";
+  }
+
   readArchivedSpecialistReports(taskId: string, attempt: number, agents: AgentType[]): Promise<SpecialistReport[]> {
     return Promise.all(
       agents.map((agent) => this.readJson<SpecialistReport>(taskId, `attempts/${attempt}/specialist-reports/specialist-${agent}.json`))

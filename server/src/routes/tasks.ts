@@ -121,8 +121,12 @@ tasksRouter.post("/tasks/:id/cancel", async (req, res, next) => {
       throw new ApiError(409, `Task cannot be cancelled from status "${task.status}".`);
     }
 
+    // task.currentStage is deliberately left untouched (Phase 34) — same
+    // reasoning as TaskOrchestrator.block(): it already holds the real
+    // pipeline stage the task was in when cancellation was requested, and
+    // the Task Detail stage timeline depends on that being a real stage
+    // name, not the synthetic status string "cancelled".
     task.status = "cancelled";
-    task.currentStage = "cancelled";
     task.updatedAt = new Date().toISOString();
     await taskStore.update(task);
     await artifactStore.writeTask(task);
@@ -325,7 +329,14 @@ tasksRouter.get("/tasks/:id/attempts", async (req, res, next) => {
     const task = await taskStore.get(req.params.id);
     if (!task) throw new ApiError(404, "Task not found.");
     const attempts = await artifactStore.listAttempts(task.id);
-    res.json({ attempts });
+    // Additive (Phase 34): reachedStage per attempt lets the UI show a
+    // one-line outcome for each archived attempt without the developer
+    // having to expand it first. `attempts` itself is unchanged so any
+    // existing consumer reading only that field is unaffected.
+    const attemptSummaries = await Promise.all(
+      attempts.map(async (attempt) => ({ attempt, reachedStage: await artifactStore.describeArchivedAttempt(task.id, attempt) }))
+    );
+    res.json({ attempts, attemptSummaries });
   } catch (err) {
     next(err);
   }

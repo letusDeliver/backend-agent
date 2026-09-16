@@ -388,9 +388,19 @@ export class TaskOrchestrator {
     return this.persist(task);
   }
 
+  /**
+   * `task.currentStage` is deliberately left untouched here (Phase 34) — it
+   * already holds the real pipeline stage the task was in when blocking was
+   * decided (set by the most recent `setStage()` call), and that value is
+   * what the Task Detail stage timeline uses to show which stages actually
+   * completed versus where the task stopped. Overwriting it with the
+   * synthetic string `"blocked"` (a task *status*, not a pipeline *stage* —
+   * see the `TaskStatus`/stage-list distinction in `types/index.ts`) used to
+   * destroy that information, making every stage render as not-yet-reached
+   * regardless of real progress.
+   */
   private async block(task: Task, reason: string): Promise<void> {
     task.status = "blocked";
-    task.currentStage = "blocked";
     task.error = reason;
     await this.persist(task);
     await this.events.publish(task.id, "TASK_BLOCKED", reason);
