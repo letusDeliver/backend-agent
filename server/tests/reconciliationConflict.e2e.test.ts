@@ -132,6 +132,7 @@ describe("Reconciliation CONFLICT — full pipeline demonstration", () => {
       currentStage: "created",
       executionMode: "mock",
       reviewRetryCount: 0,
+      attempt: 1,
       createdAt: now,
       updatedAt: now,
     });

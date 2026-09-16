@@ -36,6 +36,7 @@ function makeTask(overrides: Partial<Task> = {}): Task {
     currentStage: "analyzing",
     executionMode: "real",
     reviewRetryCount: 0,
+    attempt: 1,
     executionWorkspace: {
       workspacePath: "/tasks/t1/workspace",
       branch: "agent/task-t1",

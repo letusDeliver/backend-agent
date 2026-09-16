@@ -19,6 +19,7 @@ function makeTask(overrides: Partial<Task> = {}): Task {
     currentStage: "routing",
     executionMode: "mock",
     reviewRetryCount: 0,
+    attempt: 1,
     createdAt: "now",
     updatedAt: "now",
     ...overrides,
