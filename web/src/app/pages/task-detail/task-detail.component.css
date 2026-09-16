@@ -121,7 +121,7 @@
   color: var(--accent);
 }
 
-.state-blocked .timeline-icon {
+.state-stopped .timeline-icon {
   color: var(--red);
 }
 
@@ -205,6 +205,48 @@
 
 .status-row {
   margin-top: 4px;
+}
+
+.attempt-row {
+  justify-content: flex-start;
+  gap: 10px;
+}
+
+.attempt-outcome {
+  color: var(--text-tertiary);
+}
+
+.attempt-row .link-btn {
+  margin-left: auto;
+}
+
+/* Outcome summary (Phase 34) */
+.outcome-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.outcome-what-happened {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.outcome-detail {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin: 0;
+}
+
+.outcome-actions {
+  margin: 4px 0 0;
+  padding-left: 18px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.outcome-actions li {
+  padding: 2px 0;
 }
 
 /* Specialists */

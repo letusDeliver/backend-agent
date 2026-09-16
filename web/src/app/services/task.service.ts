@@ -2,6 +2,7 @@ import { Injectable } from "@angular/core";
 import { HttpClient } from "@angular/common/http";
 import { Observable } from "rxjs";
 import type {
+  AttemptSummary,
   ContextPack,
   ExecutionReport,
   FinalHandoff,
@@ -55,8 +56,8 @@ export class TaskService {
     return this.http.post<{ task: Task }>(`${this.baseUrl}/tasks/${id}/cleanup-workspace`, {});
   }
 
-  listAttempts(id: string): Observable<{ attempts: number[] }> {
-    return this.http.get<{ attempts: number[] }>(`${this.baseUrl}/tasks/${id}/attempts`);
+  listAttempts(id: string): Observable<{ attempts: number[]; attemptSummaries: AttemptSummary[] }> {
+    return this.http.get<{ attempts: number[]; attemptSummaries: AttemptSummary[] }>(`${this.baseUrl}/tasks/${id}/attempts`);
   }
 
   getAttemptAgents(id: string, attempt: number): Observable<{ reports: SpecialistReport[] }> {

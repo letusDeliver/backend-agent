@@ -85,6 +85,30 @@
     <div class="error-banner">{{ task.error }}</div>
   }
 
+  <!-- OUTCOME (Phase 34) -->
+  @if (isNonSuccessTerminal()) {
+    <h2 class="section-heading">Outcome</h2>
+    <div class="card outcome-card">
+      <p class="outcome-what-happened">{{ outcomeWhatHappened() }}</p>
+
+      @if (outcomeAvailablePanels().length) {
+        <p class="kv-key">Available below</p>
+        <p class="outcome-detail">{{ outcomeAvailablePanels().join(', ') }}</p>
+      } @else {
+        <p class="empty-state">No specialist analysis or later artifacts were produced before this happened.</p>
+      }
+
+      @if (outcomeNextActions().length) {
+        <p class="kv-key">What you can do</p>
+        <ul class="outcome-actions">
+          @for (action of outcomeNextActions(); track action) {
+            <li>{{ action }}</li>
+          }
+        </ul>
+      }
+    </div>
+  }
+
   <!-- STAGE TIMELINE -->
   <h2 class="section-heading">Execution Timeline</h2>
   <div class="card timeline">
@@ -94,7 +118,7 @@
           @switch (stageState(stage)) {
             @case ('done') { ✓ }
             @case ('active') { ● }
-            @case ('blocked') { ✕ }
+            @case ('stopped') { ✕ }
             @default { ○ }
           }
         </span>
@@ -121,8 +145,9 @@
     <div class="card">
       <p class="hint">Retrying restarts from repository inspection; earlier attempts are kept here, read-only.</p>
       @for (a of attempts(); track a) {
-        <div class="kv-row">
+        <div class="kv-row attempt-row">
           <span class="kv-key">Attempt {{ a }}</span>
+          <span class="kv-value attempt-outcome">{{ attemptOutcomeLabel(a) }}</span>
           <button type="button" class="link-btn" (click)="toggleAttemptView(a)">
             {{ selectedAttempt() === a ? 'Hide artifacts' : 'View artifacts →' }}
           </button>

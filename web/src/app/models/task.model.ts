@@ -76,6 +76,18 @@ export interface TaskCreateInput {
   constraints?: string;
 }
 
+/**
+ * The furthest pipeline stage an archived attempt's artifacts show it
+ * reached (Phase 34) — never a guess at its final status (`failed` vs
+ * `blocked` vs `cancelled` is never archived per attempt, only which
+ * artifact files exist). `reachedStage` is a `STAGE_SEQUENCE`-compatible
+ * key, or `"early"` if not even specialist reports exist yet.
+ */
+export interface AttemptSummary {
+  attempt: number;
+  reachedStage: string;
+}
+
 export type EventType =
   | "TASK_CREATED"
   | "REPOSITORY_INSPECTION_STARTED"

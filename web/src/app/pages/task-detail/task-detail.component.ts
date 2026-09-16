@@ -6,6 +6,7 @@ import { TaskService } from '../../services/task.service';
 import {
   AGENT_LABELS,
   AgentType,
+  AttemptSummary,
   ContextPack,
   ExecutionReport,
   FinalHandoff,
@@ -18,7 +19,14 @@ import {
   TaskEvent,
 } from '../../models/task.model';
 
-type StageState = 'done' | 'active' | 'pending' | 'blocked';
+/**
+ * 'stopped' (Phase 34) replaces the old 'blocked' state name — it now marks
+ * the stage a task stopped at for `blocked`, `failed`, *and* `cancelled`
+ * tasks alike (previously only `blocked`/`failed` were handled, and even
+ * then incorrectly — see `stageState()`), so a name scoped to one status
+ * would be misleading.
+ */
+type StageState = 'done' | 'active' | 'pending' | 'stopped';
 
 interface StageDef {
   key: string;
@@ -61,6 +69,22 @@ const RETRYABLE_STATUSES = new Set(['failed', 'blocked', 'cancelled']);
  */
 const WORKSPACE_CLEANUP_ELIGIBLE_STATUSES = new Set(['completed', 'failed', 'cancelled']);
 
+/** Statuses the new Outcome summary (Phase 34) is shown for — every terminal status except the already-well-covered `completed`. */
+const NON_SUCCESS_STATUSES = new Set(['failed', 'blocked', 'cancelled']);
+
+/** Natural-language "stopped during ___" phrasing per stage key, for the Outcome summary (Phase 34). Deliberately separate from STAGE_SEQUENCE's timeline labels, which are completion-oriented ("Reconciliation", "Implementation") rather than "during ___"-shaped. */
+const STAGE_STOPPED_DESCRIPTIONS: Record<string, string> = {
+  created: 'before starting',
+  inspecting: 'repository inspection',
+  routing: 'specialist routing',
+  analyzing: 'specialist analysis',
+  reconciling: 'reconciliation',
+  planning: 'planning',
+  implementing: 'implementation',
+  reviewing: 'review',
+  completed: 'handoff',
+};
+
 @Component({
     selector: 'app-task-detail',
     imports: [CommonModule, RouterLink],
@@ -91,6 +115,7 @@ export class TaskDetailComponent implements OnInit, OnDestroy {
 
   readonly retrying = signal(false);
   readonly attempts = signal<number[]>([]);
+  readonly attemptSummaries = signal<AttemptSummary[]>([]);
   readonly selectedAttempt = signal<number | null>(null);
   readonly attemptAgents = signal<SpecialistReport[]>([]);
   readonly attemptReconciliation = signal<Reconciliation | null>(null);
@@ -127,6 +152,75 @@ export class TaskDetailComponent implements OnInit, OnDestroy {
   readonly warningFindingsCount = computed(
     () => this.reviews().flatMap((r) => r.findings.filter((f) => f.severity === 'warning')).length
   );
+
+  /**
+   * Outcome summary (Phase 34) — shown only for the three non-success
+   * terminal statuses. `completed` already has a rich Final Handoff
+   * section; a live/in-progress task has its own timeline/panels.
+   */
+  readonly isNonSuccessTerminal = computed(() => {
+    const task = this.task();
+    return !!task && NON_SUCCESS_STATUSES.has(task.status);
+  });
+
+  readonly hasUnresolvedMaterialConflict = computed(() =>
+    (this.reconciliation()?.conflicts ?? []).some((c) => c.materiality === 'material' && !c.resolution)
+  );
+
+  /**
+   * A single deterministic sentence built only from persisted status +
+   * currentStage — never an inferred root cause (Phase 34 §14). The
+   * detailed reason (`task.error`) is already shown in the error banner
+   * above this section, so this sentence adds the one fact that banner
+   * doesn't carry: which stage the task actually stopped at.
+   */
+  readonly outcomeWhatHappened = computed(() => {
+    const task = this.task();
+    if (!task) return '';
+    const stageDescription = STAGE_STOPPED_DESCRIPTIONS[task.currentStage] ?? task.currentStage;
+    switch (task.status) {
+      case 'failed':
+        return `Task failed during ${stageDescription}.`;
+      case 'cancelled':
+        return `Task was cancelled during ${stageDescription}.`;
+      case 'blocked':
+        return `Task is blocked at ${stageDescription}.`;
+      default:
+        return '';
+    }
+  });
+
+  /** Which already-fetched panels actually have data for this task — computed, never assumed. */
+  readonly outcomeAvailablePanels = computed(() => {
+    const panels: string[] = [];
+    if (this.specialistReports().length) panels.push(`Specialist reports (${this.specialistReports().length})`);
+    if (this.reconciliation()) panels.push('Reconciliation');
+    if (this.plan()) panels.push('Implementation plan');
+    if (this.executionReport()) panels.push('Execution report' + (this.executionReport()?.diff ? ' & diff' : ''));
+    if (this.reviews().length) panels.push(`Reviews (${this.reviews().length})`);
+    return panels;
+  });
+
+  /**
+   * Next-action bullets (Phase 34) — every entry here mirrors an action
+   * that's already offered elsewhere on this page (Retry button, conflict
+   * resolve form, Cleanup Workspace button); this list never invents a new
+   * affordance, it only tells the developer such a button already exists
+   * below (§16 — reuse existing eligibility logic, don't duplicate it).
+   */
+  readonly outcomeNextActions = computed(() => {
+    const actions: string[] = [];
+    if (this.task()?.status === 'blocked' && this.hasUnresolvedMaterialConflict()) {
+      actions.push('Resolve the conflict below to let this task resume.');
+    }
+    if (this.canRetry()) {
+      actions.push('Retry — restarts from repository inspection, picking up any fix you made.');
+    }
+    if (this.canCleanupWorkspace()) {
+      actions.push('Clean up the isolated workspace below once you no longer need it.');
+    }
+    return actions;
+  });
 
   private readonly destroyed$ = new Subject<void>();
   private taskId = '';
@@ -167,7 +261,10 @@ export class TaskDetailComponent implements OnInit, OnDestroy {
         this.loading.set(false);
       },
     });
-    this.taskService.listAttempts(this.taskId).subscribe(({ attempts }) => this.attempts.set(attempts));
+    this.taskService.listAttempts(this.taskId).subscribe(({ attempts, attemptSummaries }) => {
+      this.attempts.set(attempts);
+      this.attemptSummaries.set(attemptSummaries ?? []);
+    });
   }
 
   private onEvent(event: TaskEvent): void {
@@ -175,24 +272,51 @@ export class TaskDetailComponent implements OnInit, OnDestroy {
     this.loadTask();
   }
 
+  /** Index of `stageKey` within `STAGE_SEQUENCE`, or -1 if not a real pipeline stage. */
+  private stageIndex(stageKey: string): number {
+    return STAGE_SEQUENCE.findIndex((s) => s.key === stageKey);
+  }
+
+  /**
+   * Gates each artifact fetch on how far the task's own `currentStage`
+   * actually got — not on `task.status` (Phase 34 fix). Before this fix,
+   * `blocked` was hardcoded into every conditional (regardless of whether
+   * that artifact could possibly exist yet) while `failed`/`cancelled` were
+   * hardcoded out of all of them (even when the artifact genuinely existed
+   * on disk) — an inconsistency with no basis in what data actually exists.
+   * Since `currentStage` is now always a real, trustworthy stage name for
+   * every status (see `TaskOrchestrator.block()`/the cancel route), a
+   * single stage-index comparison replaces all four hand-picked status
+   * lists and is correct for every status, live or terminal, uniformly.
+   * Fetching slightly "optimistically" (e.g. right as a live task enters a
+   * stage, just before that stage's artifact is written) is safe — every
+   * consumer already renders `null`/empty results gracefully.
+   */
   private refreshPanelsFor(task: Task): void {
-    if (task.status === 'created' || task.status === 'inspecting') return;
+    const reachedIndex = this.stageIndex(task.currentStage);
+    if (reachedIndex <= this.stageIndex('inspecting')) return;
 
     this.taskService.getAgents(task.id).subscribe(({ reports }) => this.specialistReports.set(reports));
     this.taskService.getTaskMemory(task.id).subscribe(({ contextPack }) => this.memoryPack.set(contextPack));
 
-    if (['reconciling', 'planning', 'implementing', 'reviewing', 'completed', 'blocked'].includes(task.status)) {
+    const atOrPast = (stageKey: string) => reachedIndex >= this.stageIndex(stageKey);
+
+    if (atOrPast('reconciling')) {
       this.taskService.getReconciliation(task.id).subscribe(({ reconciliation }) => this.reconciliation.set(reconciliation));
     }
-    if (['planning', 'implementing', 'reviewing', 'completed', 'blocked'].includes(task.status)) {
+    if (atOrPast('planning')) {
       this.taskService.getImplementationPlan(task.id).subscribe(({ plan }) => this.plan.set(plan));
     }
-    if (['implementing', 'reviewing', 'completed', 'blocked'].includes(task.status)) {
+    if (atOrPast('implementing')) {
       this.taskService.getExecutionReport(task.id).subscribe(({ report }) => this.executionReport.set(report));
     }
-    if (['reviewing', 'completed', 'blocked'].includes(task.status)) {
+    if (atOrPast('reviewing')) {
       this.taskService.getReviews(task.id).subscribe(({ reviews }) => this.reviews.set(reviews));
     }
+    // Handoff stays gated on status, not stage: reaching/passing the
+    // "reviewing" stage doesn't imply success — only task.status ===
+    // 'completed' means a handoff was actually generated (never for
+    // failed/blocked tasks, even ones that got all the way through review).
     if (task.status === 'completed') {
       this.taskService.getHandoff(task.id).subscribe(({ handoff, markdown }) => {
         this.handoff.set(handoff);
@@ -201,22 +325,33 @@ export class TaskDetailComponent implements OnInit, OnDestroy {
     }
   }
 
+  /**
+   * Always keyed off `task.currentStage`, which is now trustworthy for
+   * every status (Phase 34 fix). Previously this branched on `task.status`
+   * for failed/blocked using `currentStage`, but `currentStage` held the
+   * synthetic string "blocked" for blocked tasks (never a real stage), so
+   * `reachedIndex` was always -1 and every stage silently rendered
+   * 'pending' — the dedicated "stopped here" marker was unreachable.
+   */
   stageState(stage: StageDef): StageState {
     const task = this.task();
     if (!task) return 'pending';
-    const sequenceIndex = STAGE_SEQUENCE.findIndex((s) => s.key === stage.key);
-    const currentIndex = STAGE_SEQUENCE.findIndex((s) => s.key === task.status);
+    const sequenceIndex = this.stageIndex(stage.key);
+    const reachedIndex = this.stageIndex(task.currentStage);
 
-    if (task.status === 'failed' || task.status === 'blocked') {
-      const reachedIndex = STAGE_SEQUENCE.findIndex((s) => s.key === task.currentStage);
-      if (sequenceIndex < reachedIndex) return 'done';
-      if (sequenceIndex === reachedIndex) return 'blocked';
-      return 'pending';
+    if (sequenceIndex < reachedIndex) return 'done';
+    if (sequenceIndex > reachedIndex) return 'pending';
+
+    switch (task.status) {
+      case 'completed':
+        return 'done';
+      case 'blocked':
+      case 'failed':
+      case 'cancelled':
+        return 'stopped';
+      default:
+        return 'active';
     }
-
-    if (sequenceIndex < currentIndex) return 'done';
-    if (sequenceIndex === currentIndex) return task.status === 'completed' ? 'done' : 'active';
-    return 'pending';
   }
 
   specialistFor(agent: AgentType): SpecialistReport | undefined {
@@ -312,6 +447,23 @@ export class TaskDetailComponent implements OnInit, OnDestroy {
         this.loadTask();
       },
     });
+  }
+
+  /**
+   * A one-line outcome for an archived attempt, shown without requiring
+   * expansion (Phase 34 §17). Derived only from `reachedStage` — which
+   * artifact files exist for that attempt — never a guessed terminal
+   * status, since `failed`/`blocked`/`cancelled` are never archived
+   * per-attempt (only `task.json`'s live copy has that, and it's
+   * overwritten on every retry).
+   */
+  attemptOutcomeLabel(attempt: number): string {
+    const summary = this.attemptSummaries().find((s) => s.attempt === attempt);
+    if (!summary) return '';
+    if (summary.reachedStage === 'completed') return 'Completed';
+    if (summary.reachedStage === 'early') return 'Stopped early';
+    const description = STAGE_STOPPED_DESCRIPTIONS[summary.reachedStage] ?? summary.reachedStage;
+    return `Stopped during ${description}`;
   }
 
   toggleAttemptView(attempt: number): void {
