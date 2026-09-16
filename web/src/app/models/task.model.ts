@@ -58,6 +58,7 @@ export interface Task {
   executionMode: ExecutionMode;
   reviewRetryCount: number;
   executionWorkspace?: RealExecutionWorkspace;
+  attempt: number;
   createdAt: string;
   updatedAt: string;
   error?: string;
@@ -94,7 +95,8 @@ export type EventType =
   | "TASK_COMPLETED"
   | "TASK_FAILED"
   | "TASK_BLOCKED"
-  | "TASK_CANCELLED";
+  | "TASK_CANCELLED"
+  | "TASK_RETRIED";
 
 export interface TaskEvent {
   id: string;

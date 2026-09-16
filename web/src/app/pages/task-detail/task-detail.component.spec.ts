@@ -18,6 +18,7 @@ function makeTask(overrides: Partial<Task>): Task {
     currentStage: 'analyzing',
     executionMode: 'mock',
     reviewRetryCount: 0,
+    attempt: 1,
     createdAt: now,
     updatedAt: now,
     ...overrides,
@@ -37,6 +38,14 @@ function makeTaskService(task: Task): jest.Mocked<TaskService> {
     getHandoff: jest.fn().mockReturnValue(of({ handoff: null, markdown: null })),
     resolveConflict: jest.fn().mockReturnValue(NEVER),
     cancelTask: jest.fn().mockReturnValue(NEVER),
+    retryTask: jest.fn().mockReturnValue(NEVER),
+    listAttempts: jest.fn().mockReturnValue(of({ attempts: [] })),
+    getAttemptAgents: jest.fn().mockReturnValue(of({ reports: [] })),
+    getAttemptReconciliation: jest.fn().mockReturnValue(of({ reconciliation: null })),
+    getAttemptImplementationPlan: jest.fn().mockReturnValue(of({ plan: null })),
+    getAttemptExecutionReport: jest.fn().mockReturnValue(of({ report: null })),
+    getAttemptReviews: jest.fn().mockReturnValue(of({ reviews: [] })),
+    getAttemptHandoff: jest.fn().mockReturnValue(of({ handoff: null, markdown: null })),
   } as unknown as jest.Mocked<TaskService>;
 }
 
@@ -242,5 +251,117 @@ describe('TaskDetailComponent', () => {
     expect(text).toContain('resolved');
     expect(text).toContain('developer');
     expect(fixture.nativeElement.querySelector('.conflict-resolve-form')).toBeNull();
+  });
+
+  describe('Retry (Phase 31)', () => {
+    it.each([
+      ['failed', true],
+      ['blocked', true],
+      ['cancelled', true],
+      ['created', false],
+      ['inspecting', false],
+      ['analyzing', false],
+      ['reconciling', false],
+      ['planning', false],
+      ['implementing', false],
+      ['reviewing', false],
+      ['completed', false],
+    ] as const)('retry visibility for status "%s" is %s', (status, expectVisible) => {
+      const task = makeTask({ status, currentStage: status });
+      configure(task);
+      const fixture = TestBed.createComponent(TaskDetailComponent);
+      fixture.detectChanges();
+      const retryButton = (fixture.nativeElement as HTMLElement).querySelector('.task-header-actions button.btn-primary');
+      if (expectVisible) {
+        expect(retryButton).toBeTruthy();
+      } else {
+        expect(retryButton).toBeNull();
+      }
+    });
+
+    it('calls TaskService.retryTask when the Retry button is clicked, and disables it while in flight', () => {
+      const task = makeTask({ status: 'failed', currentStage: 'implementing', error: 'claude CLI exited with code 1' });
+      const taskService = configure(task);
+      const fixture = TestBed.createComponent(TaskDetailComponent);
+      fixture.detectChanges();
+
+      const retryButton = fixture.nativeElement.querySelector('.task-header-actions button.btn-primary') as HTMLButtonElement;
+      expect(retryButton.disabled).toBe(false);
+
+      retryButton.click();
+      expect(taskService.retryTask).toHaveBeenCalledWith('task-1');
+
+      fixture.detectChanges();
+      const retryButtonAfter = fixture.nativeElement.querySelector('.task-header-actions button.btn-primary') as HTMLButtonElement;
+      expect(retryButtonAfter.disabled).toBe(true);
+      expect(retryButtonAfter.textContent).toContain('Retrying');
+    });
+
+    it('shows the current attempt number once a task has been retried', () => {
+      const task = makeTask({ status: 'analyzing', currentStage: 'analyzing', attempt: 2 });
+      configure(task);
+      const fixture = TestBed.createComponent(TaskDetailComponent);
+      fixture.detectChanges();
+      const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
+      expect(text).toContain('Attempt 2');
+    });
+
+    it('renders a Previous Attempts section listing archived attempts, expandable to a read-only view', () => {
+      const task = makeTask({ status: 'completed', currentStage: 'completed', attempt: 2 });
+      const taskService = makeTaskService(task);
+      taskService.listAttempts.mockReturnValue(of({ attempts: [1] }));
+      taskService.getAttemptReconciliation.mockReturnValue(
+        of({ reconciliation: { taskId: 'task-1', status: 'AGREED', decisions: [], agreements: [], conflicts: [], unresolvedQuestions: [], risks: [], confidencePercent: 90, createdAt: new Date().toISOString() } })
+      );
+      taskService.getAttemptExecutionReport.mockReturnValue(
+        of({ report: { taskId: 'task-1', executionMode: 'mock', status: 'completed', changedFiles: ['a.ts'], tests: [], commandsExecuted: [], notes: [], createdAt: new Date().toISOString() } })
+      );
+      TestBed.configureTestingModule({
+        imports: [TaskDetailComponent],
+        providers: [
+          { provide: TaskService, useValue: taskService },
+          { provide: ActivatedRoute, useValue: { snapshot: { paramMap: convertToParamMap({ id: task.id }) } } },
+        ],
+      });
+      const fixture = TestBed.createComponent(TaskDetailComponent);
+      fixture.detectChanges();
+
+      let text = (fixture.nativeElement as HTMLElement).textContent ?? '';
+      expect(text).toContain('Previous Attempts');
+      expect(text).toContain('Attempt 1');
+
+      const viewButton = Array.from((fixture.nativeElement as HTMLElement).querySelectorAll('button')).find((b) =>
+        b.textContent?.includes('View artifacts')
+      ) as HTMLButtonElement;
+      expect(viewButton).toBeTruthy();
+      viewButton.click();
+      fixture.detectChanges();
+
+      expect(taskService.getAttemptReconciliation).toHaveBeenCalledWith('task-1', 1);
+      expect(taskService.getAttemptExecutionReport).toHaveBeenCalledWith('task-1', 1);
+      text = (fixture.nativeElement as HTMLElement).textContent ?? '';
+      expect(text).toContain('Read-only historical view');
+      expect(fixture.nativeElement.querySelector('.attempt-detail-card')).toBeTruthy();
+    });
+
+    it('shows both Resolve Conflict and Retry for a conflict-blocked task, without implying retry is preferred', () => {
+      const task = makeTask({ status: 'blocked', currentStage: 'reconciling', error: 'Reconciliation found 1 unresolved material engineering conflict(s).' });
+      const taskService = makeTaskService(task);
+      taskService.getReconciliation.mockReturnValue(of({ reconciliation: makeConflictReconciliation() }));
+      TestBed.configureTestingModule({
+        imports: [TaskDetailComponent],
+        providers: [
+          { provide: TaskService, useValue: taskService },
+          { provide: ActivatedRoute, useValue: { snapshot: { paramMap: convertToParamMap({ id: task.id }) } } },
+        ],
+      });
+      const fixture = TestBed.createComponent(TaskDetailComponent);
+      fixture.detectChanges();
+
+      const resolveButton = fixture.nativeElement.querySelector('.conflict-resolve-form button');
+      const retryButton = fixture.nativeElement.querySelector('.task-header-actions button.btn-primary');
+      expect(resolveButton).toBeTruthy();
+      expect(retryButton).toBeTruthy();
+    });
   });
 });

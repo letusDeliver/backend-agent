@@ -47,6 +47,38 @@ export class TaskService {
     return this.http.post<{ task: Task }>(`${this.baseUrl}/tasks/${id}/cancel`, {});
   }
 
+  retryTask(id: string): Observable<{ task: Task }> {
+    return this.http.post<{ task: Task }>(`${this.baseUrl}/tasks/${id}/retry`, {});
+  }
+
+  listAttempts(id: string): Observable<{ attempts: number[] }> {
+    return this.http.get<{ attempts: number[] }>(`${this.baseUrl}/tasks/${id}/attempts`);
+  }
+
+  getAttemptAgents(id: string, attempt: number): Observable<{ reports: SpecialistReport[] }> {
+    return this.http.get<{ reports: SpecialistReport[] }>(`${this.baseUrl}/tasks/${id}/attempts/${attempt}/agents`);
+  }
+
+  getAttemptReconciliation(id: string, attempt: number): Observable<{ reconciliation: Reconciliation | null }> {
+    return this.http.get<{ reconciliation: Reconciliation | null }>(`${this.baseUrl}/tasks/${id}/attempts/${attempt}/reconciliation`);
+  }
+
+  getAttemptImplementationPlan(id: string, attempt: number): Observable<{ plan: ImplementationPlan | null }> {
+    return this.http.get<{ plan: ImplementationPlan | null }>(`${this.baseUrl}/tasks/${id}/attempts/${attempt}/implementation-plan`);
+  }
+
+  getAttemptExecutionReport(id: string, attempt: number): Observable<{ report: ExecutionReport | null }> {
+    return this.http.get<{ report: ExecutionReport | null }>(`${this.baseUrl}/tasks/${id}/attempts/${attempt}/execution-report`);
+  }
+
+  getAttemptReviews(id: string, attempt: number): Observable<{ reviews: ReviewReport[] }> {
+    return this.http.get<{ reviews: ReviewReport[] }>(`${this.baseUrl}/tasks/${id}/attempts/${attempt}/reviews`);
+  }
+
+  getAttemptHandoff(id: string, attempt: number): Observable<{ handoff: FinalHandoff | null; markdown: string | null }> {
+    return this.http.get<{ handoff: FinalHandoff | null; markdown: string | null }>(`${this.baseUrl}/tasks/${id}/attempts/${attempt}/handoff`);
+  }
+
   listTasks(): Observable<{ tasks: Task[] }> {
     return this.http.get<{ tasks: Task[] }>(`${this.baseUrl}/tasks`);
   }
@@ -168,6 +200,7 @@ export class TaskService {
         "TASK_FAILED",
         "TASK_BLOCKED",
         "TASK_CANCELLED",
+        "TASK_RETRIED",
       ];
       for (const type of allEventTypes) {
         source.addEventListener(type, handler as EventListener);

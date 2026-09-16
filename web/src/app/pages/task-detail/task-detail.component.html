@@ -7,12 +7,20 @@
       <h1 class="page-title">{{ task.title }}</h1>
     </div>
     <div class="task-header-actions">
+      @if (task.attempt > 1) {
+        <span class="badge badge-neutral">Attempt {{ task.attempt }}</span>
+      }
       <span class="badge status-badge" [ngClass]="'badge-' + (task.status === 'completed' ? 'green' : task.status === 'failed' ? 'red' : task.status === 'blocked' ? 'amber' : task.status === 'cancelled' ? 'neutral' : 'blue')">
         {{ task.status }}
       </span>
       @if (!isTerminal()) {
         <button class="btn btn-danger" [disabled]="cancelling()" (click)="cancelTask()">
           {{ cancelling() ? 'Cancelling…' : 'Cancel Execution' }}
+        </button>
+      }
+      @if (canRetry()) {
+        <button class="btn btn-primary" [disabled]="retrying()" (click)="retryTask()">
+          {{ retrying() ? 'Retrying…' : 'Retry' }}
         </button>
       }
     </div>
@@ -70,6 +78,56 @@
           <span class="log-type">{{ event.type }}</span>
           <span class="log-message">{{ event.message }}</span>
         </div>
+      }
+    </div>
+  }
+
+  <!-- PREVIOUS ATTEMPTS -->
+  @if (attempts().length) {
+    <h2 class="section-heading">Previous Attempts</h2>
+    <div class="card">
+      <p class="hint">Retrying restarts from repository inspection; earlier attempts are kept here, read-only.</p>
+      @for (a of attempts(); track a) {
+        <div class="kv-row">
+          <span class="kv-key">Attempt {{ a }}</span>
+          <button type="button" class="link-btn" (click)="toggleAttemptView(a)">
+            {{ selectedAttempt() === a ? 'Hide artifacts' : 'View artifacts →' }}
+          </button>
+        </div>
+        @if (selectedAttempt() === a) {
+          <div class="card attempt-detail-card">
+            <p class="hint">Read-only historical view of attempt {{ a }} — it cannot be edited or resumed.</p>
+
+            @if (attemptReconciliation(); as r) {
+              <div class="kv-row">
+                <span class="kv-key">Reconciliation</span>
+                <span class="badge" [ngClass]="r.status === 'AGREED' ? 'badge-green' : r.status === 'NEEDS_USER_DECISION' ? 'badge-amber' : 'badge-red'">{{ r.status }}</span>
+              </div>
+            }
+            @if (attemptPlan(); as p) {
+              <p class="decision-detail"><strong>Plan:</strong> {{ p.summary }}</p>
+            }
+            @if (attemptExecutionReport(); as report) {
+              <div class="kv-row">
+                <span class="kv-key">Execution</span>
+                <span class="badge" [ngClass]="report.status === 'completed' ? 'badge-green' : 'badge-red'">{{ report.status }}</span>
+              </div>
+              <p class="decision-detail">{{ report.changedFiles.length }} file(s) changed.</p>
+            }
+            @for (review of attemptReviews(); track review.agent) {
+              <div class="kv-row">
+                <span class="kv-key">{{ agentLabels[review.agent] }} review</span>
+                <span class="badge" [ngClass]="review.status === 'PASS' ? 'badge-green' : 'badge-red'">{{ review.status }}</span>
+              </div>
+            }
+            @if (attemptHandoff(); as handoff) {
+              <p class="decision-detail"><strong>Result:</strong> {{ handoff.summary }}</p>
+            }
+            @if (!attemptReconciliation() && !attemptPlan() && !attemptExecutionReport() && !attemptHandoff()) {
+              <p class="empty-state">This attempt failed before producing any artifacts.</p>
+            }
+          </div>
+        }
       }
     </div>
   }

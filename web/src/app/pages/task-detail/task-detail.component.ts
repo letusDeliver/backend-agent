@@ -41,6 +41,16 @@ const ALL_AGENTS: AgentType[] = ['python-backend', 'node-backend', 'database'];
 
 const TERMINAL_STATUSES = new Set(['completed', 'failed', 'blocked', 'cancelled']);
 
+/**
+ * Statuses Retry is offered for (Phase 31). Deliberately the same set as
+ * `TaskOrchestrator.RETRYABLE_STATUSES` on the server — kept as a separate
+ * constant from `TERMINAL_STATUSES` since Retry and Cancel are different
+ * affordances for different statuses (a terminal task can be retried; a
+ * non-terminal one can be cancelled — the two sets happen to be related but
+ * are not the same thing conceptually).
+ */
+const RETRYABLE_STATUSES = new Set(['failed', 'blocked', 'cancelled']);
+
 @Component({
     selector: 'app-task-detail',
     imports: [CommonModule, RouterLink],
@@ -69,9 +79,24 @@ export class TaskDetailComponent implements OnInit, OnDestroy {
   readonly resolvingConflictId = signal<string | null>(null);
   readonly conflictDraft = signal<Record<string, string>>({});
 
+  readonly retrying = signal(false);
+  readonly attempts = signal<number[]>([]);
+  readonly selectedAttempt = signal<number | null>(null);
+  readonly attemptAgents = signal<SpecialistReport[]>([]);
+  readonly attemptReconciliation = signal<Reconciliation | null>(null);
+  readonly attemptPlan = signal<ImplementationPlan | null>(null);
+  readonly attemptExecutionReport = signal<ExecutionReport | null>(null);
+  readonly attemptReviews = signal<ReviewReport[]>([]);
+  readonly attemptHandoff = signal<FinalHandoff | null>(null);
+
   readonly isTerminal = computed(() => {
     const task = this.task();
     return !task || TERMINAL_STATUSES.has(task.status);
+  });
+
+  readonly canRetry = computed(() => {
+    const task = this.task();
+    return !!task && RETRYABLE_STATUSES.has(task.status);
   });
 
   readonly blockingFindingsCount = computed(
@@ -120,6 +145,7 @@ export class TaskDetailComponent implements OnInit, OnDestroy {
         this.loading.set(false);
       },
     });
+    this.taskService.listAttempts(this.taskId).subscribe(({ attempts }) => this.attempts.set(attempts));
   }
 
   private onEvent(event: TaskEvent): void {
@@ -223,5 +249,40 @@ export class TaskDetailComponent implements OnInit, OnDestroy {
       },
       error: () => this.resolvingConflictId.set(null),
     });
+  }
+
+  retryTask(): void {
+    if (this.retrying() || !this.canRetry()) return;
+    this.retrying.set(true);
+    this.taskService.retryTask(this.taskId).subscribe({
+      next: ({ task }) => {
+        this.task.set(task);
+        this.retrying.set(false);
+        this.selectedAttempt.set(null);
+        this.loadTask();
+      },
+      error: () => this.retrying.set(false),
+    });
+  }
+
+  toggleAttemptView(attempt: number): void {
+    if (this.selectedAttempt() === attempt) {
+      this.selectedAttempt.set(null);
+      return;
+    }
+    this.selectedAttempt.set(attempt);
+    this.attemptAgents.set([]);
+    this.attemptReconciliation.set(null);
+    this.attemptPlan.set(null);
+    this.attemptExecutionReport.set(null);
+    this.attemptReviews.set([]);
+    this.attemptHandoff.set(null);
+
+    this.taskService.getAttemptAgents(this.taskId, attempt).subscribe(({ reports }) => this.attemptAgents.set(reports));
+    this.taskService.getAttemptReconciliation(this.taskId, attempt).subscribe(({ reconciliation }) => this.attemptReconciliation.set(reconciliation));
+    this.taskService.getAttemptImplementationPlan(this.taskId, attempt).subscribe(({ plan }) => this.attemptPlan.set(plan));
+    this.taskService.getAttemptExecutionReport(this.taskId, attempt).subscribe(({ report }) => this.attemptExecutionReport.set(report));
+    this.taskService.getAttemptReviews(this.taskId, attempt).subscribe(({ reviews }) => this.attemptReviews.set(reviews));
+    this.taskService.getAttemptHandoff(this.taskId, attempt).subscribe(({ handoff }) => this.attemptHandoff.set(handoff));
   }
 }
