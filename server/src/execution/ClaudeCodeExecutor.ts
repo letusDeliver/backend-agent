@@ -4,6 +4,7 @@ import type {
   ExecutionMode,
   ExecutionReport,
   ImplementationPlan,
+  Reconciliation,
   ReconciliationConflict,
   ReviewReport,
   SpecialistReport,
@@ -11,6 +12,19 @@ import type {
   TestRunResult,
 } from "../types/index.js";
 import type { ContextPackEntry } from "../memory/contextPack.js";
+
+/**
+ * Phase 39: identifies which backlog step an `implement()`/`review()` call
+ * is scoped to, when `Task.decomposeRequirement` is active. Its absence
+ * means "the whole plan, in one pass" — today's original, still-default
+ * behavior.
+ */
+export interface ActiveSubtask {
+  index: number;
+  total: number;
+  title: string;
+  description: string;
+}
 
 export interface AnalyzeParams {
   agent: AgentType;
@@ -32,6 +46,7 @@ export interface ImplementParams {
   task: Task;
   plan: ImplementationPlan;
   detectedStack: DetectedStack;
+  activeSubtask?: ActiveSubtask;
 }
 
 export interface RunTestsParams {
@@ -94,6 +109,27 @@ export interface ReviewParams {
   plan: ImplementationPlan;
   executionReport: ExecutionReport;
   attempt: number;
+  activeSubtask?: ActiveSubtask;
+}
+
+/**
+ * Phase 39: invoked once per task, right after planning, only when
+ * `Task.decomposeRequirement === true` — decomposes the reconciled plan
+ * into an ordered backlog small enough for each step's own bounded
+ * `implement()` call to realistically finish, instead of one monolithic
+ * pass. Concretely motivated: a real-mode greenfield build was empirically
+ * observed hitting `config.claudeTimeoutMs` on every attempt of a single
+ * implement() call (see docs/PHASE_39_COMPLETION_REPORT.md).
+ */
+export interface DecomposeRequirementParams {
+  task: Task;
+  plan: ImplementationPlan;
+  reconciliation: Reconciliation;
+}
+
+export interface SubtaskDefinition {
+  title: string;
+  description: string;
 }
 
 /**
@@ -111,6 +147,7 @@ export interface ClaudeCodeExecutor {
   review(params: ReviewParams): Promise<ReviewReport>;
   decideDirection(params: DirectionDecisionParams): Promise<DirectionDecision>;
   decideConflictResolution(params: ConflictResolutionParams): Promise<ConflictResolutionDecision>;
+  decomposeRequirement(params: DecomposeRequirementParams): Promise<SubtaskDefinition[]>;
   /**
    * Best-effort termination of any in-flight work for a task (Phase 28 —
    * cancellation). Mock execution has nothing to cancel (every call is

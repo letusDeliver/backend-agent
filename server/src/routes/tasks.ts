@@ -57,6 +57,11 @@ function validateCreateInput(body: unknown): TaskCreateInput {
     requirementDocPaths = cleaned.length > 0 ? cleaned : undefined;
   }
 
+  // Phase 39: explicit per-task opt-in, default false — every existing task
+  // and every task that doesn't set this runs exactly the single-pass
+  // pipeline it always has.
+  const decomposeRequirement = b.decomposeRequirement === true;
+
   return {
     title: title || requirement.slice(0, 60),
     requirement,
@@ -66,6 +71,7 @@ function validateCreateInput(body: unknown): TaskCreateInput {
     constraints: typeof b.constraints === "string" ? b.constraints.trim() || undefined : undefined,
     autonomyLevel,
     requirementDocPaths,
+    decomposeRequirement,
   };
 }
 
@@ -92,6 +98,7 @@ tasksRouter.post("/tasks", async (req, res, next) => {
       autonomyLevel: input.autonomyLevel ?? "advisory",
       autonomousDecisions: [],
       requirementDocPaths: input.requirementDocPaths,
+      decomposeRequirement: input.decomposeRequirement ?? false,
       attempt: 1,
       createdAt: now,
       updatedAt: now,

@@ -23,8 +23,10 @@ import type {
   ReconciliationConflict,
   ReviewReport,
   SpecialistReport,
+  Subtask,
   Task,
 } from "../types/index.js";
+import type { ActiveSubtask } from "../execution/ClaudeCodeExecutor.js";
 
 export class TaskNotFoundError extends Error {}
 export class RetryNotAllowedError extends Error {}
@@ -207,6 +209,11 @@ export class TaskOrchestrator {
 
     if (await this.isCancelled(task.id)) return;
 
+    if (task.decomposeRequirement) {
+      await this.runDecomposedImplementation(task, plan, reconciliation, agents);
+      return;
+    }
+
     task = await this.setStage(task, "implementing", "implementing");
     const executionReport = await this.implement(task, plan);
 
@@ -221,6 +228,108 @@ export class TaskOrchestrator {
     if (await this.isCancelled(task.id)) return;
 
     await this.handoff(task, plan, executionReport, finalReviews, agents);
+  }
+
+  /**
+   * Phase 39. Only ever called when `task.decomposeRequirement === true`.
+   * Decomposes the reconciled plan into an ordered backlog, then runs
+   * implement -> review per step instead of once, stopping at the first
+   * step that can't clear review rather than pressing on with later steps
+   * built on an unreviewed foundation. Each step's own `implement()` call
+   * diffs against the same fixed `baseRevision` the workspace started at
+   * (`GitWorktreeManager.diff()`), so every step's `ExecutionReport.diff`
+   * is already cumulative — no manual merging of changedFiles across steps
+   * is needed; the *last* completed step's report is the ground truth for
+   * the whole backlog's cumulative state.
+   */
+  private async runDecomposedImplementation(
+    task: Task,
+    plan: ImplementationPlan,
+    reconciliation: Reconciliation,
+    agents: AgentType[]
+  ): Promise<void> {
+    let subtaskDefs;
+    try {
+      subtaskDefs = await this.executor.decomposeRequirement({ task, plan, reconciliation });
+    } catch (err) {
+      await this.block(task, `Backlog decomposition failed: ${(err as Error).message}`);
+      return;
+    }
+    if (subtaskDefs.length === 0) {
+      await this.block(task, "Backlog decomposition produced no implementation steps.");
+      return;
+    }
+
+    const subtasks: Subtask[] = subtaskDefs.map((d, i) => ({
+      id: `${task.id}-subtask-${i + 1}`,
+      index: i + 1,
+      total: subtaskDefs.length,
+      title: d.title,
+      description: d.description,
+      status: "pending",
+    }));
+    task.subtasks = subtasks;
+    task = await this.persist(task);
+    await this.events.publish(
+      task.id,
+      "SUBTASKS_DECOMPOSED",
+      `Decomposed into ${subtasks.length} implementation step(s).`,
+      { subtasks }
+    );
+
+    let lastExecutionReport: ExecutionReport | null = null;
+    const allReviews: ReviewReport[] = [];
+
+    for (const subtask of subtasks) {
+      if (await this.isCancelled(task.id)) return;
+
+      const activeSubtask: ActiveSubtask = { index: subtask.index, total: subtask.total, title: subtask.title, description: subtask.description };
+
+      subtask.status = "implementing";
+      task = await this.persist(task);
+      task = await this.setStage(task, "implementing", "implementing");
+      await this.events.publish(task.id, "SUBTASK_STARTED", `Subtask ${subtask.index}/${subtask.total} started: ${subtask.title}`, { subtask });
+
+      const executionReport = await this.implement(task, plan, activeSubtask);
+      lastExecutionReport = executionReport;
+
+      if (executionReport.status === "failed") {
+        subtask.status = "failed";
+        task = await this.persist(task);
+        await this.events.publish(task.id, "SUBTASK_BLOCKED", `Subtask ${subtask.index}/${subtask.total} failed during implementation.`, { subtask });
+        await this.block(
+          task,
+          `Backlog stopped at subtask ${subtask.index}/${subtask.total} ("${subtask.title}"): implementation failed. ${subtask.index - 1} of ${subtask.total} step(s) completed successfully before this. Notes: ${executionReport.notes.join(" ")}`
+        );
+        return;
+      }
+
+      if (await this.isCancelled(task.id)) return;
+
+      subtask.status = "reviewing";
+      task = await this.persist(task);
+      const { finalReviews, blocked, blockReason } = await this.reviewLoop(task, plan, agents, executionReport, activeSubtask);
+      allReviews.push(...finalReviews);
+
+      if (blocked) {
+        subtask.status = "blocked";
+        task = await this.persist(task);
+        await this.events.publish(task.id, "SUBTASK_BLOCKED", `Subtask ${subtask.index}/${subtask.total} blocked: ${blockReason ?? "review could not be satisfied."}`, { subtask });
+        await this.block(
+          task,
+          `Backlog stopped at subtask ${subtask.index}/${subtask.total} ("${subtask.title}"): ${blockReason ?? "review loop exceeded the maximum retry count with unresolved blocking findings."} ${subtask.index - 1} of ${subtask.total} step(s) completed successfully before this.`
+        );
+        return;
+      }
+
+      subtask.status = "completed";
+      task = await this.persist(task);
+      await this.events.publish(task.id, "SUBTASK_COMPLETED", `Subtask ${subtask.index}/${subtask.total} completed: ${subtask.title}`, { subtask });
+    }
+
+    if (await this.isCancelled(task.id)) return;
+
+    await this.handoff(task, plan, lastExecutionReport!, allReviews, agents);
   }
 
   /**
@@ -641,9 +750,9 @@ export class TaskOrchestrator {
     return reports;
   }
 
-  private async implement(task: Task, plan: ImplementationPlan): Promise<ExecutionReport> {
+  private async implement(task: Task, plan: ImplementationPlan, activeSubtask?: ActiveSubtask): Promise<ExecutionReport> {
     await this.events.publish(task.id, "IMPLEMENTATION_STARTED", `Implementation started (${task.executionMode.toUpperCase()} execution).`);
-    const report = await this.executor.implement({ task, plan, detectedStack: task.detectedStack! });
+    const report = await this.executor.implement({ task, plan, detectedStack: task.detectedStack!, activeSubtask });
     const tests = await this.executor.runTests({ task, detectedStack: task.detectedStack! });
     report.tests = tests;
     if (tests.some((t) => t.status === "failed")) report.status = "failed";
@@ -668,7 +777,8 @@ export class TaskOrchestrator {
     task: Task,
     plan: ImplementationPlan,
     agents: AgentType[],
-    executionReport: ExecutionReport
+    executionReport: ExecutionReport,
+    activeSubtask?: ActiveSubtask
   ): Promise<{ finalReviews: ReviewReport[]; blocked: boolean; blockReason?: string }> {
     task = await this.setStage(task, "reviewing", "reviewing");
 
@@ -680,7 +790,7 @@ export class TaskOrchestrator {
       const reviews = await Promise.all(
         agents.map(async (agent) => {
           const contract = await loadSpecialistContract(agent);
-          const review = await this.executor.review({ agent, task, specialistContract: contract, plan, executionReport, attempt });
+          const review = await this.executor.review({ agent, task, specialistContract: contract, plan, executionReport, attempt, activeSubtask });
           await this.artifacts.writeReviewReport(review);
           return review;
         })
@@ -727,7 +837,7 @@ export class TaskOrchestrator {
 
       task = await this.setStage(task, "implementing", "implementing");
       await this.events.publish(task.id, "IMPLEMENTATION_STARTED", `Corrective implementation pass (attempt ${attempt + 1}).`);
-      executionReport = await this.executor.implement({ task, plan, detectedStack: task.detectedStack! });
+      executionReport = await this.executor.implement({ task, plan, detectedStack: task.detectedStack!, activeSubtask });
       const tests = await this.executor.runTests({ task, detectedStack: task.detectedStack! });
       executionReport.tests = tests;
       await this.artifacts.writeExecutionReport(executionReport);

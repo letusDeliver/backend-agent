@@ -9,11 +9,13 @@ import type {
   AnalyzeParams,
   ConflictResolutionDecision,
   ConflictResolutionParams,
+  DecomposeRequirementParams,
   DirectionDecision,
   DirectionDecisionParams,
   ImplementParams,
   ReviewParams,
   RunTestsParams,
+  SubtaskDefinition,
 } from "./ClaudeCodeExecutor.js";
 import type { AgentType, ExecutionReport, ReviewReport, SpecialistReport, Task, TestRunResult } from "../types/index.js";
 
@@ -273,7 +275,7 @@ export class RealClaudeCodeExecutor implements ClaudeCodeExecutor {
     }
   }
 
-  async implement({ task, plan, detectedStack }: ImplementParams): Promise<ExecutionReport> {
+  async implement({ task, plan, detectedStack, activeSubtask }: ImplementParams): Promise<ExecutionReport> {
     const prompt = [
       `Implement the following reconciled engineering plan inside this repository.`,
       `Task: ${task.title}`,
@@ -285,6 +287,14 @@ export class RealClaudeCodeExecutor implements ClaudeCodeExecutor {
       `Plan summary: ${plan.summary}`,
       `Expected files: ${plan.files.map((f) => `${f.path} — ${f.description}`).join("; ")}`,
       "",
+      ...(activeSubtask
+        ? [
+            `This is a decomposed backlog. Implement ONLY step ${activeSubtask.index} of ${activeSubtask.total}: "${activeSubtask.title}".`,
+            `Step ${activeSubtask.index} description: ${activeSubtask.description}`,
+            "Do not attempt any other step in this pass, even if it looks quick — later steps will run as their own separate implementation pass. Build on whatever earlier steps already committed; do not redo or revert their work.",
+            "",
+          ]
+        : []),
       "Make the smallest reviewable change that satisfies the requirement, following existing repository conventions.",
       "After implementing, respond with ONLY a JSON object of this exact shape, no prose outside it:",
       '{"changedFiles": string[], "commandsExecuted": string[], "notes": string[]}',
@@ -393,7 +403,7 @@ export class RealClaudeCodeExecutor implements ClaudeCodeExecutor {
     }
   }
 
-  async review({ agent, task, specialistContract, plan, executionReport, attempt }: ReviewParams): Promise<ReviewReport> {
+  async review({ agent, task, specialistContract, plan, executionReport, attempt, activeSubtask }: ReviewParams): Promise<ReviewReport> {
     const diff = executionReport.diff;
     const prompt = [
       `You are acting as the ${agent} specialist reviewing an implementation, under this contract:`,
@@ -401,6 +411,12 @@ export class RealClaudeCodeExecutor implements ClaudeCodeExecutor {
       "",
       `Task: ${task.title}`,
       `Plan: ${plan.summary}`,
+      ...(activeSubtask
+        ? [
+            `This is a decomposed backlog with ${activeSubtask.total} step(s). You are reviewing step ${activeSubtask.index} of ${activeSubtask.total} ONLY: "${activeSubtask.title}" (${activeSubtask.description}).`,
+            `Judge this diff purely against step ${activeSubtask.index}'s own scope. It is expected and correct that later steps are not implemented yet — do not raise a blocking finding for scope the later steps, not this one, are responsible for.`,
+          ]
+        : []),
       `Files changed: ${executionReport.changedFiles.join(", ") || "(none reported)"}`,
       `Test evidence: ${JSON.stringify(executionReport.tests)}`,
       "",
@@ -544,5 +560,49 @@ export class RealClaudeCodeExecutor implements ClaudeCodeExecutor {
       executionMode: "real",
       createdAt: new Date().toISOString(),
     };
+  }
+
+  /**
+   * Phase 39. Runs inside the task's isolated workspace (unlike
+   * `decideDirection()`/`decideConflictResolution()`) in read-only "plan"
+   * mode — by this point in the pipeline a real-mode workspace already
+   * exists (planning runs after workspace preparation), and letting Claude
+   * actually look at the current repository state produces a materially
+   * better backlog than reasoning from the plan text alone.
+   */
+  async decomposeRequirement({ task, plan, reconciliation }: DecomposeRequirementParams): Promise<SubtaskDefinition[]> {
+    const prompt = [
+      "Decompose the following reconciled engineering plan into an ordered backlog of small, sequential implementation steps, each scoped so a single non-interactive implementation pass can realistically finish it — prefer 3-8 steps for a typical feature request; fewer only if the plan is genuinely small; more only if it's genuinely large. A prior attempt at this exact requirement, implemented in one single pass, was killed by a timeout before finishing — smaller, sequential steps are the reason this call exists.",
+      REQUIREMENT_TRUST_FRAME,
+      task.requirement,
+      ...requirementDocsBlock(task),
+      `Reconciled plan summary: ${plan.summary}`,
+      `Expected files: ${plan.files.map((f) => `${f.path} — ${f.description}`).join("; ")}`,
+      `Architecture decisions already agreed: ${reconciliation.decisions.map((d) => d.decision).join(" | ") || "(none recorded)"}`,
+      "",
+      "Order the steps so each one builds on what the previous step already committed (e.g. project scaffolding and dependencies before features that need them; a shared auth/middleware layer before the endpoints that depend on it). Inspect the repository at the current working directory as needed (read-only — do not modify files) to ground the plan in what's actually there.",
+      "Respond with ONLY a JSON array of this exact shape, no prose outside it:",
+      '[{"title": string, "description": string}]',
+    ].join("\n");
+
+    const cwd = this.workspaceOf(task);
+    const { stdout } = await this.runClaudeCli(task.id, prompt, cwd, "plan");
+    const resultText = this.parseResultText(stdout);
+    const fenced = resultText.match(/```(?:json)?\s*([\s\S]*?)```/);
+    const candidate = fenced ? fenced[1] : resultText;
+    const start = candidate.indexOf("[");
+    const end = candidate.lastIndexOf("]");
+    if (start === -1 || end === -1) {
+      throw new ClaudeCliError("Could not locate a JSON array in the backlog decomposition response.");
+    }
+    const payload = JSON.parse(candidate.slice(start, end + 1)) as Array<{ title?: unknown; description?: unknown }>;
+    const subtasks = payload
+      .filter((s): s is { title: string; description: string } => typeof s.title === "string" && typeof s.description === "string" && s.title.trim().length > 0)
+      .map((s) => ({ title: s.title.trim(), description: s.description.trim() }));
+
+    if (subtasks.length === 0) {
+      throw new ClaudeCliError("Backlog decomposition returned no valid steps.");
+    }
+    return subtasks;
   }
 }

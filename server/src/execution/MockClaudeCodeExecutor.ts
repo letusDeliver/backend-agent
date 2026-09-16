@@ -3,11 +3,13 @@ import type {
   AnalyzeParams,
   ConflictResolutionDecision,
   ConflictResolutionParams,
+  DecomposeRequirementParams,
   DirectionDecision,
   DirectionDecisionParams,
   ImplementParams,
   ReviewParams,
   RunTestsParams,
+  SubtaskDefinition,
 } from "./ClaudeCodeExecutor.js";
 import type { AgentType, ExecutionReport, ReviewReport, SpecialistReport, TestRunResult } from "../types/index.js";
 import { combinedRequirementText } from "../orchestrator/requirementDocs.js";
@@ -83,7 +85,7 @@ export class MockClaudeCodeExecutor implements ClaudeCodeExecutor {
     };
   }
 
-  async implement({ task, plan }: ImplementParams): Promise<ExecutionReport> {
+  async implement({ task, plan, activeSubtask }: ImplementParams): Promise<ExecutionReport> {
     return {
       taskId: task.id,
       executionMode: "mock",
@@ -94,6 +96,7 @@ export class MockClaudeCodeExecutor implements ClaudeCodeExecutor {
       notes: [
         "MOCK / SIMULATED EXECUTION: no files were modified on disk and no commands were run.",
         "This is a simulated implementation pass. Set CLAUDE_EXECUTION_MODE=real to execute through the local Claude Code CLI.",
+        ...(activeSubtask ? [`Scoped to subtask ${activeSubtask.index}/${activeSubtask.total}: ${activeSubtask.title}`] : []),
       ],
       createdAt: new Date().toISOString(),
     };
@@ -182,5 +185,31 @@ export class MockClaudeCodeExecutor implements ClaudeCodeExecutor {
       executionMode: "mock",
       createdAt: new Date().toISOString(),
     };
+  }
+
+  /**
+   * Deterministic stand-in for the real backlog-decomposition call: splits
+   * on numbered markers "(1) ... (2) ..." if the requirement is already
+   * written that way (as this project's own requirement prompts often are),
+   * otherwise returns a single subtask covering the whole requirement —
+   * identical in effect to not decomposing at all. Real reasoning about how
+   * to split an unstructured requirement into a sensible backlog is exactly
+   * the kind of judgment this heuristic doesn't attempt.
+   */
+  async decomposeRequirement({ task }: DecomposeRequirementParams): Promise<SubtaskDefinition[]> {
+    const markerCount = (task.requirement.match(/\(\d+\)/g) ?? []).length;
+    if (markerCount < 2) {
+      return [{ title: task.title, description: task.requirement }];
+    }
+    const withMarkerAtStart = task.requirement.trimStart().startsWith("(");
+    const parts = task.requirement
+      .split(/\(\d+\)\s*/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+    const items = withMarkerAtStart ? parts : parts.slice(1);
+    return items.map((item, i) => ({
+      title: `Step ${i + 1}: ${item.split(/[.\n]/)[0].slice(0, 80).trim()}`,
+      description: item,
+    }));
   }
 }

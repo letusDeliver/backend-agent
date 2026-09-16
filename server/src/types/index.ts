@@ -51,6 +51,8 @@ export interface TaskCreateInput {
    * re-paste documentation they already wrote into the requirement field.
    */
   requirementDocPaths?: string[];
+  /** Opts into backlog decomposition (Phase 39) — default `false`. */
+  decomposeRequirement?: boolean;
 }
 
 export interface DetectedStack {
@@ -127,6 +129,23 @@ export interface AutonomousDecision {
   createdAt: string;
 }
 
+/**
+ * One step in a decomposed implementation backlog (Phase 39) — only ever
+ * present when `Task.decomposeRequirement === true`. Statuses mirror the
+ * pipeline's own implement -> review cycle, scoped to this one step rather
+ * than the whole task. `"failed"` is reserved for the same "the executor
+ * call itself errored" case `ExecutionReport.status` already uses; a step
+ * that ran but had unresolved blocking review findings is `"blocked"`.
+ */
+export interface Subtask {
+  id: string;
+  index: number;
+  total: number;
+  title: string;
+  description: string;
+  status: "pending" | "implementing" | "reviewing" | "completed" | "blocked" | "failed";
+}
+
 export interface Task {
   id: string;
   title: string;
@@ -153,6 +172,17 @@ export interface Task {
   requirementDocPaths?: string[];
   /** Populated at inspection time from `requirementDocPaths` (Phase 38). */
   requirementDocs?: RequirementDocExcerpt[];
+  /**
+   * Explicit per-task opt-in (Phase 39, default `false`/absent — every
+   * existing task and every task that doesn't set this behaves exactly as
+   * before). When true, the implementation phase decomposes the reconciled
+   * plan into an ordered backlog (`subtasks`) and runs plan/implement/
+   * review per step instead of once — directly motivated by a monolithic
+   * implement() call empirically hitting `config.claudeTimeoutMs` on a
+   * genuinely large greenfield build (see docs/PHASE_39_COMPLETION_REPORT.md).
+   */
+  decomposeRequirement?: boolean;
+  subtasks?: Subtask[];
   executionWorkspace?: RealExecutionWorkspace;
   /**
    * 1 for a task's first run. Incremented by `TaskOrchestrator.retry()`;
@@ -193,7 +223,11 @@ export type EventType =
   | "WORKSPACE_CLEANED"
   | "WORKSPACE_CLEANUP_FAILED"
   | "AUTONOMOUS_DECISION_MADE"
-  | "REQUIREMENT_DOCS_READ";
+  | "REQUIREMENT_DOCS_READ"
+  | "SUBTASKS_DECOMPOSED"
+  | "SUBTASK_STARTED"
+  | "SUBTASK_COMPLETED"
+  | "SUBTASK_BLOCKED";
 
 export interface TaskEvent {
   id: string;
