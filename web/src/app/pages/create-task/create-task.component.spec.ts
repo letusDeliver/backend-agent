@@ -61,6 +61,7 @@ describe('CreateTaskComponent', () => {
       preferredDatabase: '',
       constraints: '',
       autonomousMode: false,
+      requirementDocPaths: '',
     });
 
     component.submit();
@@ -83,11 +84,52 @@ describe('CreateTaskComponent', () => {
       preferredDatabase: '',
       constraints: '',
       autonomousMode: true,
+      requirementDocPaths: '',
     });
 
     component.submit();
 
     expect(taskServiceSpy.createTask).toHaveBeenCalledWith(expect.objectContaining({ autonomyLevel: 'autonomous' }));
+  });
+
+  it('parses requirementDocPaths from newline/comma-separated text into an array', () => {
+    const fixture = TestBed.createComponent(CreateTaskComponent);
+    const component = fixture.componentInstance;
+    component.form.setValue({
+      title: '',
+      requirement: 'Add an endpoint.',
+      repository: '/Users/dev/projects/orders-service',
+      preferredTechnology: '',
+      preferredDatabase: '',
+      constraints: '',
+      autonomousMode: false,
+      requirementDocPaths: 'docs/requirements.md, docs/login-flow.md\ndocs/tasks.md',
+    });
+
+    component.submit();
+
+    expect(taskServiceSpy.createTask).toHaveBeenCalledWith(
+      expect.objectContaining({ requirementDocPaths: ['docs/requirements.md', 'docs/login-flow.md', 'docs/tasks.md'] })
+    );
+  });
+
+  it('omits requirementDocPaths when the field is left blank', () => {
+    const fixture = TestBed.createComponent(CreateTaskComponent);
+    const component = fixture.componentInstance;
+    component.form.setValue({
+      title: '',
+      requirement: 'Add an endpoint.',
+      repository: '/Users/dev/projects/orders-service',
+      preferredTechnology: '',
+      preferredDatabase: '',
+      constraints: '',
+      autonomousMode: false,
+      requirementDocPaths: '',
+    });
+
+    component.submit();
+
+    expect(taskServiceSpy.createTask).toHaveBeenCalledWith(expect.objectContaining({ requirementDocPaths: undefined }));
   });
 
   it('surfaces a validation error from the API instead of navigating', () => {
@@ -104,6 +146,7 @@ describe('CreateTaskComponent', () => {
       preferredDatabase: '',
       constraints: '',
       autonomousMode: false,
+      requirementDocPaths: '',
     });
 
     component.submit();

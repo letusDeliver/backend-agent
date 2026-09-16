@@ -1,4 +1,5 @@
 import type { AgentType, DetectedStack, Task } from "../types/index.js";
+import { combinedRequirementText } from "./requirementDocs.js";
 
 export interface RoutingResult {
   agents: AgentType[];
@@ -36,7 +37,12 @@ const API_APPLICATION_KEYWORDS = ["endpoint", "api", "service", "route", "contro
  * language after real repository inspection escalates instead of guessing.
  */
 export function routeTask(task: Task, detectedStack: DetectedStack): RoutingResult {
-  const text = `${task.requirement} ${task.preferredTechnology ?? ""} ${task.preferredDatabase ?? ""} ${task.constraints ?? ""}`.toLowerCase();
+  // Phase 38: routing must see requirement docs the task points at, not
+  // just the free-text requirement field — otherwise a stack/database
+  // keyword sitting only inside a referenced doc (e.g. docs/requirements.md)
+  // is invisible to this deterministic, pre-execution decision.
+  const requirementText = combinedRequirementText(task.requirement, task.requirementDocs);
+  const text = `${requirementText} ${task.preferredTechnology ?? ""} ${task.preferredDatabase ?? ""} ${task.constraints ?? ""}`.toLowerCase();
   const rationale: string[] = [];
 
   const mentionsPython = PYTHON_KEYWORDS.some((k) => text.includes(k));

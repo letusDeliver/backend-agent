@@ -6,6 +6,7 @@ import type { ClaudeCodeExecutor } from "../execution/ClaudeCodeExecutor.js";
 import { deriveWorkspaceLocation, GitWorktreeManager } from "../execution/gitWorktree.js";
 import { loadSpecialistContract, AGENT_LABELS } from "../agents/specialistContracts.js";
 import { inspectRepository } from "./repositoryInspector.js";
+import { readRequirementDocs } from "./requirementDocs.js";
 import { routeTask, type RoutingResult } from "./routingEngine.js";
 import { reconcile, hasUnresolvedMaterialConflict, detectReviewConflicts, describeUnresolvedQuestion, recomputeStatus } from "./reconciliation.js";
 import { buildImplementationPlan } from "./implementationPlan.js";
@@ -438,6 +439,20 @@ export class TaskOrchestrator {
     await this.events.publish(task.id, "REPOSITORY_INSPECTION_COMPLETED", `Stack detected: ${describeStack(detectedStack)}`, {
       detectedStack,
     });
+
+    if (task.requirementDocPaths && task.requirementDocPaths.length > 0) {
+      const requirementDocs = await readRequirementDocs(task.repository, task.requirementDocPaths);
+      task.requirementDocs = requirementDocs;
+      task = await this.persist(task);
+      const readOk = requirementDocs.filter((d) => !d.readError).length;
+      await this.events.publish(
+        task.id,
+        "REQUIREMENT_DOCS_READ",
+        `Read ${readOk} of ${requirementDocs.length} requirement doc(s) from the repository.`,
+        { requirementDocs: requirementDocs.map((d) => ({ path: d.path, truncated: d.truncated, totalChars: d.totalChars, readError: d.readError })) }
+      );
+    }
+
     return task;
   }
 

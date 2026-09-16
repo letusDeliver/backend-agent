@@ -45,6 +45,22 @@
     <textarea id="constraints" formControlName="constraints" rows="3" placeholder="Must preserve the existing public API."></textarea>
   </div>
 
+  <div class="field">
+    <label for="requirementDocPaths">
+      Requirement docs already in the repository <span class="hint">(optional)</span>
+    </label>
+    <textarea
+      id="requirementDocPaths"
+      formControlName="requirementDocPaths"
+      rows="2"
+      placeholder="docs/requirements.md, docs/login-flow.md"
+    ></textarea>
+    <span class="hint">
+      One path per line or comma-separated, relative to the repository root. Read once at inspection time and folded
+      into routing and every specialist's context — you don't need to re-paste documentation you already wrote.
+    </span>
+  </div>
+
   <div class="field field-checkbox">
     <label class="checkbox-label">
       <input id="autonomousMode" type="checkbox" formControlName="autonomousMode" />

@@ -39,4 +39,9 @@ export const config = {
     .split(",")
     .map((k) => k.trim())
     .filter(Boolean),
+  // Phase 38: maximum characters read from any single requirement doc a
+  // task points at (task.requirementDocPaths). Bounds prompt size and
+  // artifact size the same way maxDiffPatchChars bounds diff capture — an
+  // oversized doc is truncated explicitly, never dropped silently.
+  maxRequirementDocChars: Number(process.env.MAX_REQUIREMENT_DOC_CHARS ?? 20_000),
 };

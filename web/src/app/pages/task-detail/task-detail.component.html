@@ -139,6 +139,29 @@
     </div>
   }
 
+  <!-- REQUIREMENT DOCS (Phase 38) -->
+  @if (task.requirementDocs?.length) {
+    <h2 class="section-heading">Requirement Docs</h2>
+    <div class="card requirement-docs">
+      <p class="hint">Read once from the repository at inspection time and folded into routing and every specialist's context.</p>
+      @for (doc of task.requirementDocs; track doc.path) {
+        <div class="kv-row">
+          <span class="kv-key mono">{{ doc.path }}</span>
+          @if (doc.readError) {
+            <span class="badge badge-red">Not read</span>
+          } @else if (doc.truncated) {
+            <span class="badge badge-amber">Truncated ({{ doc.content.length }} of {{ doc.totalChars }} chars)</span>
+          } @else {
+            <span class="badge badge-green">Read ({{ doc.totalChars }} chars)</span>
+          }
+        </div>
+        @if (doc.readError) {
+          <p class="hint error-text">{{ doc.readError }}</p>
+        }
+      }
+    </div>
+  }
+
   <!-- AUTONOMOUS DECISIONS (Phase 36 routing, Phase 37 reconciliation conflicts) -->
   @if (task.autonomousDecisions?.length) {
     <h2 class="section-heading">Autonomous Decisions</h2>

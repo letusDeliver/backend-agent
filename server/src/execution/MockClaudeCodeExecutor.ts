@@ -10,6 +10,7 @@ import type {
   RunTestsParams,
 } from "./ClaudeCodeExecutor.js";
 import type { AgentType, ExecutionReport, ReviewReport, SpecialistReport, TestRunResult } from "../types/index.js";
+import { combinedRequirementText } from "../orchestrator/requirementDocs.js";
 
 const MOCK_PYTHON_KEYWORDS = ["python", "fastapi", "django", "flask", "pytest", "sqlalchemy"];
 const MOCK_DATABASE_KEYWORDS = ["database", "postgres", "postgresql", "mongo", "mongodb", "redis", "schema", "migration", "transaction", "persistence"];
@@ -71,6 +72,9 @@ export class MockClaudeCodeExecutor implements ClaudeCodeExecutor {
                 .map((m) => m.summary)
                 .join(" | ")}`,
             ]
+          : []),
+        ...((task.requirementDocs?.length ?? 0) > 0
+          ? [`Incorporated ${task.requirementDocs!.length} requirement document(s) read from the repository: ${task.requirementDocs!.map((d) => d.path).join(", ")}`]
           : []),
       ],
       confidence: 0.7,
@@ -138,7 +142,10 @@ export class MockClaudeCodeExecutor implements ClaudeCodeExecutor {
    * standing rule that simulated output is always clearly labeled.
    */
   async decideDirection({ task }: DirectionDecisionParams): Promise<DirectionDecision> {
-    const text = task.requirement.toLowerCase();
+    // Phase 38: scans requirement docs too, not just the requirement field —
+    // the exact "no clue where to begin, my docs say what I want" scenario
+    // this method exists for.
+    const text = combinedRequirementText(task.requirement, task.requirementDocs).toLowerCase();
     const pythonMatched = MOCK_PYTHON_KEYWORDS.some((k) => text.includes(k));
     const language: "python" | "node" = pythonMatched ? "python" : "node";
     const agents: AgentType[] = [language === "python" ? "python-backend" : "node-backend"];
@@ -149,9 +156,9 @@ export class MockClaudeCodeExecutor implements ClaudeCodeExecutor {
       language,
       agents,
       rationale: pythonMatched
-        ? "MOCK / SIMULATED EXECUTION: no live reasoning was performed. Chose Python from a keyword match in the requirement text."
+        ? "MOCK / SIMULATED EXECUTION: no live reasoning was performed. Chose Python from a keyword match in the requirement text/documents."
         : "MOCK / SIMULATED EXECUTION: no live reasoning was performed. Defaulted to Node.js (this platform's own stack) " +
-          "because the requirement and repository evidence gave no real stack signal to reason from.",
+          "because the requirement, its documents, and repository evidence gave no real stack signal to reason from.",
       confidence: 0.4,
       executionMode: "mock",
       createdAt: new Date().toISOString(),

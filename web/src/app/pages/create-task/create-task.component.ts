@@ -25,6 +25,7 @@ export class CreateTaskComponent {
     preferredDatabase: [''],
     constraints: [''],
     autonomousMode: [false],
+    requirementDocPaths: [''],
   });
 
   constructor(
@@ -50,6 +51,7 @@ export class CreateTaskComponent {
         preferredDatabase: value.preferredDatabase || undefined,
         constraints: value.constraints || undefined,
         autonomyLevel: value.autonomousMode ? 'autonomous' : 'advisory',
+        requirementDocPaths: this.parseDocPaths(value.requirementDocPaths),
       })
       .pipe(switchMap(({ task }) => this.taskService.startTask(task.id).pipe(map(() => task))))
       .subscribe({
@@ -59,5 +61,14 @@ export class CreateTaskComponent {
           this.error.set(err?.error?.error?.message ?? 'Could not create the task. Check the repository path and try again.');
         },
       });
+  }
+
+  private parseDocPaths(raw: string | null | undefined): string[] | undefined {
+    if (!raw) return undefined;
+    const paths = raw
+      .split(/[\n,]/)
+      .map((p) => p.trim())
+      .filter(Boolean);
+    return paths.length > 0 ? paths : undefined;
   }
 }

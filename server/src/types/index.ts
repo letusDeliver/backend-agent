@@ -43,6 +43,14 @@ export interface TaskCreateInput {
   preferredDatabase?: string;
   constraints?: string;
   autonomyLevel?: AutonomyLevel;
+  /**
+   * Repo-relative paths to requirement/task docs already sitting inside the
+   * target repository (Phase 38) — e.g. `["docs/requirements.md",
+   * "docs/login-flow.md"]`. Read deterministically at inspection time and
+   * folded into routing/specialist context, so a developer doesn't have to
+   * re-paste documentation they already wrote into the requirement field.
+   */
+  requirementDocPaths?: string[];
 }
 
 export interface DetectedStack {
@@ -54,6 +62,23 @@ export interface DetectedStack {
   lintCommand: string | null;
   typecheckCommand: string | null;
   evidence: string[];
+}
+
+/**
+ * One requirement/task doc a developer pointed the task at, already
+ * deterministically read from the target repository at inspection time
+ * (Phase 38) — never fetched again later, so routing/specialists/planning
+ * all see the exact same snapshot. `content` is bounded to
+ * `config.maxRequirementDocChars`; `readError` is set instead of `content`
+ * when the path escapes the repository, doesn't exist, or can't be read —
+ * a missing doc never silently disappears, it's a visible, reportable fact.
+ */
+export interface RequirementDocExcerpt {
+  path: string;
+  content: string;
+  truncated: boolean;
+  totalChars: number;
+  readError?: string;
 }
 
 /**
@@ -125,6 +150,9 @@ export interface Task {
    */
   autonomyLevel?: AutonomyLevel;
   autonomousDecisions?: AutonomousDecision[];
+  requirementDocPaths?: string[];
+  /** Populated at inspection time from `requirementDocPaths` (Phase 38). */
+  requirementDocs?: RequirementDocExcerpt[];
   executionWorkspace?: RealExecutionWorkspace;
   /**
    * 1 for a task's first run. Incremented by `TaskOrchestrator.retry()`;
@@ -164,7 +192,8 @@ export type EventType =
   | "TASK_RETRIED"
   | "WORKSPACE_CLEANED"
   | "WORKSPACE_CLEANUP_FAILED"
-  | "AUTONOMOUS_DECISION_MADE";
+  | "AUTONOMOUS_DECISION_MADE"
+  | "REQUIREMENT_DOCS_READ";
 
 export interface TaskEvent {
   id: string;

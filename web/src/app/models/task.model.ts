@@ -39,6 +39,19 @@ export interface DetectedStack {
 }
 
 /**
+ * One requirement/task doc a task pointed at inside the repository,
+ * already read at inspection time (Phase 38). `readError` is set instead
+ * of real content when the path didn't exist or escaped the repository.
+ */
+export interface RequirementDocExcerpt {
+  path: string;
+  content: string;
+  truncated: boolean;
+  totalChars: number;
+  readError?: string;
+}
+
+/**
  * The isolated git worktree real execution runs against, for a given task.
  * Never populated in mock mode.
  */
@@ -87,6 +100,8 @@ export interface Task {
   reviewRetryCount: number;
   autonomyLevel?: AutonomyLevel;
   autonomousDecisions?: AutonomousDecision[];
+  requirementDocPaths?: string[];
+  requirementDocs?: RequirementDocExcerpt[];
   executionWorkspace?: RealExecutionWorkspace;
   attempt: number;
   createdAt: string;
@@ -102,6 +117,7 @@ export interface TaskCreateInput {
   preferredDatabase?: string;
   constraints?: string;
   autonomyLevel?: AutonomyLevel;
+  requirementDocPaths?: string[];
 }
 
 /**
@@ -142,7 +158,8 @@ export type EventType =
   | "TASK_RETRIED"
   | "WORKSPACE_CLEANED"
   | "WORKSPACE_CLEANUP_FAILED"
-  | "AUTONOMOUS_DECISION_MADE";
+  | "AUTONOMOUS_DECISION_MADE"
+  | "REQUIREMENT_DOCS_READ";
 
 export interface TaskEvent {
   id: string;

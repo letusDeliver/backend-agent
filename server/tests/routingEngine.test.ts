@@ -100,4 +100,28 @@ describe("routeTask — Phase 24 cross-stack routing benchmark matrix", () => {
     expect(result.agents).toEqual([]);
     expect(result.needsEscalation).toBe(true);
   });
+
+  it("resolves routing from a requirement doc's content when the requirement field itself names no technology (Phase 38)", () => {
+    const task = makeTask({
+      requirement: "Add support for exporting reports.",
+      requirementDocs: [
+        { path: "docs/requirements.md", content: "Build this with FastAPI and a PostgreSQL schema for the export job.", truncated: false, totalChars: 70 },
+      ],
+    });
+    const stack = makeStack({ language: "unknown" });
+    const result = routeTask(task, stack);
+    expect(result.agents.sort()).toEqual(["database", "python-backend"].sort());
+    expect(result.needsEscalation).toBe(false);
+  });
+
+  it("a failed requirement doc read contributes nothing and still escalates if no other signal exists", () => {
+    const task = makeTask({
+      requirement: "Add support for exporting reports.",
+      requirementDocs: [{ path: "docs/missing.md", content: "", truncated: false, totalChars: 0, readError: "File not found." }],
+    });
+    const stack = makeStack({ language: "unknown" });
+    const result = routeTask(task, stack);
+    expect(result.agents).toEqual([]);
+    expect(result.needsEscalation).toBe(true);
+  });
 });

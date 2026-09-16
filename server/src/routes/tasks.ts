@@ -36,6 +36,27 @@ function validateCreateInput(body: unknown): TaskCreateInput {
   // or malformed field can never accidentally enable autonomous decisions.
   const autonomyLevel = b.autonomyLevel === "autonomous" ? "autonomous" : "advisory";
 
+  // Phase 38: repo-relative paths to requirement/task docs the developer
+  // already wrote inside the target repository. Validated as a bounded list
+  // of non-empty strings here — the paths themselves are only resolved
+  // against the actual repository (and safety-checked) later, at
+  // inspection time, the same division of responsibility resolveRepositoryPath
+  // vs. the real filesystem work already has.
+  let requirementDocPaths: string[] | undefined;
+  if (b.requirementDocPaths !== undefined) {
+    if (!Array.isArray(b.requirementDocPaths) || !b.requirementDocPaths.every((p) => typeof p === "string")) {
+      throw new ApiError(400, "requirementDocPaths must be an array of strings.");
+    }
+    if (b.requirementDocPaths.length > 20) {
+      throw new ApiError(400, "requirementDocPaths supports at most 20 paths.");
+    }
+    const cleaned = b.requirementDocPaths.map((p) => p.trim()).filter(Boolean);
+    if (cleaned.some((p) => p.length > 500)) {
+      throw new ApiError(400, "Each requirementDocPaths entry must be at most 500 characters.");
+    }
+    requirementDocPaths = cleaned.length > 0 ? cleaned : undefined;
+  }
+
   return {
     title: title || requirement.slice(0, 60),
     requirement,
@@ -44,6 +65,7 @@ function validateCreateInput(body: unknown): TaskCreateInput {
     preferredDatabase: typeof b.preferredDatabase === "string" ? b.preferredDatabase.trim() || undefined : undefined,
     constraints: typeof b.constraints === "string" ? b.constraints.trim() || undefined : undefined,
     autonomyLevel,
+    requirementDocPaths,
   };
 }
 
@@ -69,6 +91,7 @@ tasksRouter.post("/tasks", async (req, res, next) => {
       reviewRetryCount: 0,
       autonomyLevel: input.autonomyLevel ?? "advisory",
       autonomousDecisions: [],
+      requirementDocPaths: input.requirementDocPaths,
       attempt: 1,
       createdAt: now,
       updatedAt: now,
