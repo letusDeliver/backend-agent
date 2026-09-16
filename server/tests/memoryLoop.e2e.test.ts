@@ -40,12 +40,15 @@ async function runTaskToCompletion(requirement: string): Promise<string> {
 
   await request(app).post(`/api/tasks/${taskId}/start`);
 
+  // 50 x 100ms, matching e2e.test.ts/api.test.ts's budget — this test's
+  // previous 50 x 50ms budget was flaky under the CPU contention of a full
+  // parallel `vitest run` (harmless when run alone).
   let status = "created";
   for (let i = 0; i < 50; i += 1) {
     const res = await request(app).get(`/api/tasks/${taskId}`);
     status = res.body.task.status;
     if (["completed", "blocked", "failed"].includes(status)) break;
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await new Promise((resolve) => setTimeout(resolve, 100));
   }
   expect(status).toBe("completed");
   return taskId;
