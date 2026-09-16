@@ -220,12 +220,20 @@ export interface ExecutionDiffFile {
   deletions: number;
 }
 
-/** Ground-truth `git diff` evidence for a real-mode implementation pass. */
+/**
+ * Ground-truth `git diff` evidence for a real-mode implementation pass.
+ * `patch` (Phase 33) is the actual unified-diff text, bounded to a maximum
+ * size — `truncated` says whether it was cut, and `totalPatchChars` is
+ * always the full, untruncated length so the UI can show "showing X of Y".
+ */
 export interface ExecutionDiff {
   baseRevision: string;
   branch: string;
   files: ExecutionDiffFile[];
   summary: string;
+  patch: string;
+  truncated: boolean;
+  totalPatchChars: number;
 }
 
 export interface ExecutionReport {
@@ -269,6 +277,8 @@ export interface FinalHandoff {
   reviewsFailed: number;
   architectureDecisions: number;
   warnings: number;
+  /** Whether the stored diff's patch content was truncated (Phase 33). */
+  diffTruncated?: boolean;
   executionMode: ExecutionMode;
   status: "completed" | "blocked";
   createdAt: string;

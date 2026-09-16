@@ -392,6 +392,49 @@
     </div>
   }
 
+  <!-- IMPLEMENTATION DIFF -->
+  @if (executionReport(); as executionReport) {
+    <h2 class="section-heading">Implementation Diff</h2>
+    <div class="card">
+      @if (executionReport.diff; as diff) {
+        @if (diff.files.length === 0) {
+          <p class="empty-state">No implementation diff available — the execution pass made no changes.</p>
+        } @else {
+          <div class="kv-row"><span class="kv-key">Summary</span><span class="kv-value">{{ diff.summary }}</span></div>
+          <ul class="file-list">
+            @for (f of diff.files; track f.path) {
+              <li>
+                <span class="mono">{{ f.path }}</span>
+                <span class="diff-stat">+{{ f.additions }} / -{{ f.deletions }}</span>
+              </li>
+            }
+          </ul>
+          @if (diff.truncated) {
+            <p class="diff-truncated-notice">
+              Diff truncated — showing {{ diff.patch.length }} of {{ diff.totalPatchChars }} characters. This is not the complete patch; do not assume omitted sections are unchanged or correct.
+            </p>
+          }
+          @if (diff.patch) {
+            <details class="diff-patch">
+              <summary>View patch{{ diff.truncated ? ' (truncated)' : '' }}</summary>
+              <pre>{{ diff.patch }}</pre>
+            </details>
+          } @else {
+            <p class="empty-state">Patch content unavailable for this execution.</p>
+          }
+        }
+      } @else {
+        <p class="empty-state">
+          @if (executionReport.executionMode === 'mock') {
+            MOCK / SIMULATED EXECUTION — no ground-truth diff is produced in mock mode.
+          } @else {
+            No implementation diff available.
+          }
+        </p>
+      }
+    </div>
+  }
+
   <!-- REVIEWS -->
   @if (reviews().length) {
     <h2 class="section-heading">Reviews</h2>
