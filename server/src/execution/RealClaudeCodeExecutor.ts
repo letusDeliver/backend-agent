@@ -120,6 +120,12 @@ export class RealClaudeCodeExecutor implements ClaudeCodeExecutor {
     }
   }
 
+  cancelAllInFlight(): void {
+    for (const taskId of this.activeProcesses.keys()) {
+      this.cancel(taskId);
+    }
+  }
+
   private workspaceOf(task: Task): string {
     const ws = task.executionWorkspace;
     if (!ws || ws.status !== "ready") {
@@ -670,6 +676,7 @@ export class RealClaudeCodeExecutor implements ClaudeCodeExecutor {
       `Architecture decisions already agreed: ${reconciliation.decisions.map((d) => d.decision).join(" | ") || "(none recorded)"}`,
       "",
       "Order the steps so each one builds on what the previous step already committed (e.g. project scaffolding and dependencies before features that need them; a shared auth/middleware layer before the endpoints that depend on it). Inspect the repository at the current working directory as needed (read-only — do not modify files) to ground the plan in what's actually there.",
+      "Every step must be something a non-interactive implementation pass can actually DO by writing, editing, or running code — never a manual verification, exploratory testing, or documentation-only step with nothing to implement. If verification matters, fold it into the step that implements the thing being verified (e.g. as part of that step's own automated tests), rather than as its own separate backlog item — a step with nothing to change will correctly fail review for having no implementation, which wastes an entire pass.",
       "Respond with ONLY a JSON array of this exact shape, no prose outside it:",
       '[{"title": string, "description": string}]',
     ].join("\n");
