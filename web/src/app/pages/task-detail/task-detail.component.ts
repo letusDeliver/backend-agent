@@ -51,6 +51,16 @@ const TERMINAL_STATUSES = new Set(['completed', 'failed', 'blocked', 'cancelled'
  */
 const RETRYABLE_STATUSES = new Set(['failed', 'blocked', 'cancelled']);
 
+/**
+ * Statuses Workspace Cleanup is offered for (Phase 32). Deliberately
+ * excludes 'blocked' — Phase 30's conflict-resolution resume path reuses
+ * the exact same worktree, so cleanup must never be offered there, unlike
+ * Retry which is offered for 'blocked' too. Kept as its own constant
+ * rather than reusing RETRYABLE_STATUSES for that reason. Mirrors
+ * `TaskOrchestrator.WORKSPACE_CLEANUP_ELIGIBLE_STATUSES` on the server.
+ */
+const WORKSPACE_CLEANUP_ELIGIBLE_STATUSES = new Set(['completed', 'failed', 'cancelled']);
+
 @Component({
     selector: 'app-task-detail',
     imports: [CommonModule, RouterLink],
@@ -89,6 +99,9 @@ export class TaskDetailComponent implements OnInit, OnDestroy {
   readonly attemptReviews = signal<ReviewReport[]>([]);
   readonly attemptHandoff = signal<FinalHandoff | null>(null);
 
+  readonly cleaningUp = signal(false);
+  readonly confirmingCleanup = signal(false);
+
   readonly isTerminal = computed(() => {
     const task = this.task();
     return !task || TERMINAL_STATUSES.has(task.status);
@@ -97,6 +110,15 @@ export class TaskDetailComponent implements OnInit, OnDestroy {
   readonly canRetry = computed(() => {
     const task = this.task();
     return !!task && RETRYABLE_STATUSES.has(task.status);
+  });
+
+  readonly canCleanupWorkspace = computed(() => {
+    const task = this.task();
+    if (!task || task.executionMode !== 'real') return false;
+    const workspace = task.executionWorkspace;
+    if (!workspace || workspace.status !== 'ready') return false;
+    if (workspace.cleanupStatus === 'cleaned') return false;
+    return WORKSPACE_CLEANUP_ELIGIBLE_STATUSES.has(task.status);
   });
 
   readonly blockingFindingsCount = computed(
@@ -262,6 +284,33 @@ export class TaskDetailComponent implements OnInit, OnDestroy {
         this.loadTask();
       },
       error: () => this.retrying.set(false),
+    });
+  }
+
+  requestCleanupWorkspace(): void {
+    if (this.cleaningUp() || !this.canCleanupWorkspace()) return;
+    this.confirmingCleanup.set(true);
+  }
+
+  cancelCleanupConfirmation(): void {
+    this.confirmingCleanup.set(false);
+  }
+
+  confirmCleanupWorkspace(): void {
+    if (this.cleaningUp() || !this.canCleanupWorkspace()) return;
+    this.cleaningUp.set(true);
+    this.confirmingCleanup.set(false);
+    this.taskService.cleanupWorkspace(this.taskId).subscribe({
+      next: ({ task }) => {
+        this.task.set(task);
+        this.cleaningUp.set(false);
+      },
+      error: () => {
+        this.cleaningUp.set(false);
+        // A failed cleanup is recorded server-side on
+        // executionWorkspace.cleanupStatus/cleanupError — reload to show it.
+        this.loadTask();
+      },
     });
   }
 

@@ -1,6 +1,6 @@
 import { TestBed } from '@angular/core/testing';
 import { ActivatedRoute, convertToParamMap } from '@angular/router';
-import { NEVER, of } from 'rxjs';
+import { NEVER, Observable, of } from 'rxjs';
 import { TaskDetailComponent } from './task-detail.component';
 import { TaskService } from '../../services/task.service';
 import type { Reconciliation, Task } from '../../models/task.model';
@@ -46,6 +46,7 @@ function makeTaskService(task: Task): jest.Mocked<TaskService> {
     getAttemptExecutionReport: jest.fn().mockReturnValue(of({ report: null })),
     getAttemptReviews: jest.fn().mockReturnValue(of({ reviews: [] })),
     getAttemptHandoff: jest.fn().mockReturnValue(of({ handoff: null, markdown: null })),
+    cleanupWorkspace: jest.fn().mockReturnValue(NEVER),
   } as unknown as jest.Mocked<TaskService>;
 }
 
@@ -362,6 +363,157 @@ describe('TaskDetailComponent', () => {
       const retryButton = fixture.nativeElement.querySelector('.task-header-actions button.btn-primary');
       expect(resolveButton).toBeTruthy();
       expect(retryButton).toBeTruthy();
+    });
+  });
+
+  describe('Workspace Cleanup (Phase 32)', () => {
+    function cleanupButton(fixture: { nativeElement: HTMLElement }): HTMLButtonElement | null {
+      return (
+        (Array.from(fixture.nativeElement.querySelectorAll('.workspace-panel button')).find((b) =>
+          b.textContent?.includes('Cleanup Workspace')
+        ) as HTMLButtonElement | undefined) ?? null
+      );
+    }
+
+    it.each([
+      ['completed', 'real', 'ready', undefined, true],
+      ['failed', 'real', 'ready', undefined, true],
+      ['cancelled', 'real', 'ready', undefined, true],
+      ['blocked', 'real', 'ready', undefined, false],
+      ['implementing', 'real', 'ready', undefined, false],
+      ['completed', 'mock', undefined, undefined, false],
+      ['completed', 'real', 'ready', 'cleaned', false],
+      ['completed', 'real', 'failed', undefined, false],
+    ] as const)(
+      'cleanup visibility for status=%s mode=%s workspaceStatus=%s cleanupStatus=%s is %s',
+      (status, executionMode, workspaceStatus, cleanupStatus, expectVisible) => {
+        const task = makeTask({
+          status,
+          currentStage: status,
+          executionMode,
+          executionWorkspace:
+            executionMode === 'real'
+              ? {
+                  workspacePath: '/tmp/tasks/task-1/workspace',
+                  branch: 'agent/task-task-1',
+                  baseRevision: 'a'.repeat(40),
+                  status: workspaceStatus!,
+                  createdAt: new Date().toISOString(),
+                  cleanupStatus,
+                }
+              : undefined,
+        });
+        configure(task);
+        const fixture = TestBed.createComponent(TaskDetailComponent);
+        fixture.detectChanges();
+        const button = cleanupButton(fixture);
+        if (expectVisible) {
+          expect(button).toBeTruthy();
+        } else {
+          expect(button).toBeNull();
+        }
+      }
+    );
+
+    function makeRealTerminalTask(overrides: Partial<Task> = {}): Task {
+      return makeTask({
+        status: 'completed',
+        currentStage: 'completed',
+        executionMode: 'real',
+        executionWorkspace: {
+          workspacePath: '/tmp/tasks/task-1/workspace',
+          branch: 'agent/task-task-1',
+          baseRevision: 'a'.repeat(40),
+          status: 'ready',
+          createdAt: new Date().toISOString(),
+        },
+        ...overrides,
+      });
+    }
+
+    it('shows a confirmation before calling TaskService.cleanupWorkspace, and does not call it on Cancel', () => {
+      const task = makeRealTerminalTask();
+      const taskService = configure(task);
+      const fixture = TestBed.createComponent(TaskDetailComponent);
+      fixture.detectChanges();
+
+      cleanupButton(fixture)!.click();
+      fixture.detectChanges();
+      expect(taskService.cleanupWorkspace).not.toHaveBeenCalled();
+      expect((fixture.nativeElement as HTMLElement).textContent).toContain('permanently deletes the task branch');
+
+      const cancelBtn = Array.from((fixture.nativeElement as HTMLElement).querySelectorAll('.cleanup-confirm button')).find((b) =>
+        b.textContent?.includes('Cancel')
+      ) as HTMLButtonElement;
+      cancelBtn.click();
+      fixture.detectChanges();
+      expect(taskService.cleanupWorkspace).not.toHaveBeenCalled();
+      expect(fixture.nativeElement.querySelector('.cleanup-confirm')).toBeNull();
+      expect(cleanupButton(fixture)).toBeTruthy();
+    });
+
+    it('calls TaskService.cleanupWorkspace on confirm, disables the button while in flight, and renders Cleaned on success', () => {
+      const task = makeRealTerminalTask();
+      const taskService = makeTaskService(task);
+      const cleaned: Task = {
+        ...task,
+        executionWorkspace: { ...task.executionWorkspace!, cleanupStatus: 'cleaned', cleanedAt: new Date().toISOString() },
+      };
+      taskService.cleanupWorkspace.mockReturnValue(of({ task: cleaned }));
+      TestBed.configureTestingModule({
+        imports: [TaskDetailComponent],
+        providers: [
+          { provide: TaskService, useValue: taskService },
+          { provide: ActivatedRoute, useValue: { snapshot: { paramMap: convertToParamMap({ id: task.id }) } } },
+        ],
+      });
+      const fixture = TestBed.createComponent(TaskDetailComponent);
+      fixture.detectChanges();
+
+      cleanupButton(fixture)!.click();
+      fixture.detectChanges();
+      const confirmBtn = Array.from((fixture.nativeElement as HTMLElement).querySelectorAll('.cleanup-confirm button')).find((b) =>
+        b.textContent?.includes('Confirm Cleanup')
+      ) as HTMLButtonElement;
+      confirmBtn.click();
+      expect(taskService.cleanupWorkspace).toHaveBeenCalledWith('task-1');
+
+      fixture.detectChanges();
+      const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
+      expect(text).toContain('Cleaned');
+      expect(cleanupButton(fixture)).toBeNull();
+    });
+
+    it('reloads the task to show a cleanup failure without crashing', () => {
+      const task = makeRealTerminalTask();
+      const taskService = makeTaskService(task);
+      const failed: Task = {
+        ...task,
+        executionWorkspace: { ...task.executionWorkspace!, cleanupStatus: 'cleanup_failed', cleanupError: 'git worktree remove failed: locked' },
+      };
+      taskService.cleanupWorkspace.mockReturnValue(new Observable((subscriber) => subscriber.error(new Error('cleanup failed'))));
+      taskService.getTask.mockReturnValueOnce(of({ task })).mockReturnValue(of({ task: failed }));
+      TestBed.configureTestingModule({
+        imports: [TaskDetailComponent],
+        providers: [
+          { provide: TaskService, useValue: taskService },
+          { provide: ActivatedRoute, useValue: { snapshot: { paramMap: convertToParamMap({ id: task.id }) } } },
+        ],
+      });
+      const fixture = TestBed.createComponent(TaskDetailComponent);
+      fixture.detectChanges();
+
+      cleanupButton(fixture)!.click();
+      fixture.detectChanges();
+      const confirmBtn = Array.from((fixture.nativeElement as HTMLElement).querySelectorAll('.cleanup-confirm button')).find((b) =>
+        b.textContent?.includes('Confirm Cleanup')
+      ) as HTMLButtonElement;
+      confirmBtn.click();
+      fixture.detectChanges();
+
+      const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
+      expect(text).toContain('Cleanup failed');
+      expect(text).toContain('git worktree remove failed: locked');
     });
   });
 });

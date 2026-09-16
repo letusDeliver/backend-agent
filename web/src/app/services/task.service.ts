@@ -51,6 +51,10 @@ export class TaskService {
     return this.http.post<{ task: Task }>(`${this.baseUrl}/tasks/${id}/retry`, {});
   }
 
+  cleanupWorkspace(id: string): Observable<{ task: Task }> {
+    return this.http.post<{ task: Task }>(`${this.baseUrl}/tasks/${id}/cleanup-workspace`, {});
+  }
+
   listAttempts(id: string): Observable<{ attempts: number[] }> {
     return this.http.get<{ attempts: number[] }>(`${this.baseUrl}/tasks/${id}/attempts`);
   }
@@ -201,6 +205,8 @@ export class TaskService {
         "TASK_BLOCKED",
         "TASK_CANCELLED",
         "TASK_RETRIED",
+        "WORKSPACE_CLEANED",
+        "WORKSPACE_CLEANUP_FAILED",
       ];
       for (const type of allEventTypes) {
         source.addEventListener(type, handler as EventListener);

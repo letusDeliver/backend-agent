@@ -41,6 +41,9 @@ export interface RealExecutionWorkspace {
   status: "ready" | "failed";
   createdAt: string;
   error?: string;
+  cleanupStatus?: "ready" | "cleaned" | "cleanup_failed";
+  cleanedAt?: string;
+  cleanupError?: string;
 }
 
 export interface Task {
@@ -96,7 +99,9 @@ export type EventType =
   | "TASK_FAILED"
   | "TASK_BLOCKED"
   | "TASK_CANCELLED"
-  | "TASK_RETRIED";
+  | "TASK_RETRIED"
+  | "WORKSPACE_CLEANED"
+  | "WORKSPACE_CLEANUP_FAILED";
 
 export interface TaskEvent {
   id: string;

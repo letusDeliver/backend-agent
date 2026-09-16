@@ -39,8 +39,41 @@
       @if (workspace.status === 'ready') {
         <div class="kv-row"><span class="kv-key">Isolation</span><span class="kv-value">Isolated git worktree — your working tree is protected</span></div>
         <div class="kv-row"><span class="kv-key">Base revision</span><span class="kv-value mono">{{ workspace.baseRevision.slice(0, 12) }}</span></div>
-        <div class="kv-row"><span class="kv-key">Task branch</span><span class="kv-value mono">{{ workspace.branch }}</span></div>
-        <p class="hint">Changes are never merged automatically — review and merge this branch with your own git tooling when you're ready.</p>
+        <div class="kv-row">
+          <span class="kv-key">Task branch</span>
+          <span class="kv-value mono">{{ workspace.branch }}{{ workspace.cleanupStatus === 'cleaned' ? ' (deleted)' : '' }}</span>
+        </div>
+
+        @if (workspace.cleanupStatus === 'cleaned') {
+          <div class="kv-row"><span class="kv-key">Workspace</span><span class="badge badge-neutral">Cleaned</span></div>
+          <p class="hint">Cleaned up at {{ workspace.cleanedAt }} — the isolated worktree and task branch were removed. Task artifacts, reviews and the final handoff are not affected.</p>
+        } @else {
+          <p class="hint">Changes are never merged automatically — review and merge this branch with your own git tooling when you're ready.</p>
+
+          @if (workspace.cleanupStatus === 'cleanup_failed') {
+            <div class="kv-row"><span class="kv-key">Workspace</span><span class="badge badge-red">Cleanup failed</span></div>
+            <p class="hint error-text">{{ workspace.cleanupError }}</p>
+          }
+
+          @if (canCleanupWorkspace()) {
+            @if (confirmingCleanup()) {
+              <div class="cleanup-confirm">
+                <p class="hint">
+                  This removes the isolated workspace and permanently deletes the task branch
+                  (<span class="mono">{{ workspace.branch }}</span>). Any changes you haven't merged into your own
+                  repository will be lost. Task artifacts, reviews and the final handoff are not affected, and your
+                  original repository is never touched.
+                </p>
+                <button class="btn btn-danger" [disabled]="cleaningUp()" (click)="confirmCleanupWorkspace()">
+                  {{ cleaningUp() ? 'Cleaning up…' : 'Confirm Cleanup' }}
+                </button>
+                <button class="btn" [disabled]="cleaningUp()" (click)="cancelCleanupConfirmation()">Cancel</button>
+              </div>
+            } @else {
+              <button class="btn" (click)="requestCleanupWorkspace()">Cleanup Workspace</button>
+            }
+          }
+        }
       } @else {
         <div class="kv-row"><span class="kv-key">Isolation</span><span class="badge badge-red">Workspace preparation failed</span></div>
         <p class="hint error-text">{{ workspace.error }}</p>
