@@ -9,7 +9,7 @@ Describe a requirement, point it at a real repository, and watch an orchestrator
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.x%20%2F%206.x-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![Express](https://img.shields.io/badge/Express-4.x-000000?logo=express&logoColor=white)](https://expressjs.com/)
 [![Angular](https://img.shields.io/badge/Angular-22-DD0031?logo=angular&logoColor=white)](https://angular.dev/)
-[![Tests](https://img.shields.io/badge/tests-243%20passing-33c481)](#testing)
+[![Tests](https://img.shields.io/badge/tests-255%20passing-33c481)](#testing)
 [![CI](https://github.com/letusDeliver/backend-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/letusDeliver/backend-agent/actions/workflows/ci.yml)
 
 </div>
@@ -48,7 +48,8 @@ Every stage is inspectable. Nothing is claimed that didn't actually happen.
 - ✓ **Deterministic conflict detection** — reconciliation compares specialists' actual recommendations (category → subject → polarity, no LLM call), not just routing/failure signals; a material conflict blocks implementation until a developer resolves it through a dedicated API, with full evidence and provenance recorded
 - ✓ **Task retry & startup crash recovery** — a `failed`, `blocked` or `cancelled` task is never a dead end: retry restarts it from repository inspection (picking up anything you fixed in the meantime), archives the prior attempt's full artifact history as a read-only "Attempt N", and never risks double-executing against a stale real-mode git worktree; a server restart no longer leaves a mid-flight task silently stuck — a startup sweep marks it `failed` with the stage it was interrupted at, so it's visible and retryable
 - ✓ **Manual workspace cleanup** — a terminal, non-blocked real-mode task's isolated git worktree and task branch can be explicitly removed once you're done with it (`[ Cleanup Workspace ]` in Task Detail), freeing disk without ever touching your original repository or the durable artifact/attempt history; never automatic, never allowed while a conflict-blocked task still needs that exact workspace
-- ✓ **243 automated tests** (198 backend + 44 frontend) across the routing engine, repository inspector, reconciliation/conflict-detection logic, memory retrieval/candidate-lessons/approval, retry/attempt-archiving/startup-recovery, workspace cleanup/git-worktree lifecycle, API, SSE stream, git-worktree isolation, real-executor hardening (timeout/cancellation/ground-truth diff), and full end-to-end happy paths — plus a committed browser E2E test and CI running all of it on every push
+- ✓ **Ground-truth diff content in review & Task Detail** — the specialist reviewer and the Task Detail UI both see the actual bounded `git diff` patch, not just a file list and line counts; an oversized diff is truncated explicitly (never silently) at a file boundary, and the reviewer is warned when it's looking at an incomplete patch
+- ✓ **255 automated tests** (205 backend + 49 frontend) across the routing engine, repository inspector, reconciliation/conflict-detection logic, memory retrieval/candidate-lessons/approval, retry/attempt-archiving/startup-recovery, workspace cleanup/git-worktree lifecycle, ground-truth diff capture/truncation/review integration, API, SSE stream, git-worktree isolation, real-executor hardening (timeout/cancellation/ground-truth diff), and full end-to-end happy paths — plus a committed browser E2E test and CI running all of it on every push
 - ✓ **Isolated real execution** — Claude Code runs against a dedicated git worktree/branch, never your live working tree, with a repository-safety guard, timeout, and mid-run cancellation
 - ✓ **Engineering memory, human-gated** — a completed task can produce candidate lessons; only after a developer approves one does it ever influence a later task's specialist analysis, with the full retrieval decision recorded per task
 
@@ -113,7 +114,7 @@ The platform never disguises which mode produced a result. Real mode is opt-in o
 ## Testing
 
 ```bash
-npm test              # everything (242 tests: 198 backend + 44 frontend)
+npm test              # everything (254 tests: 205 backend + 49 frontend)
 npm run test:server   # backend — vitest
 npm run test:web      # frontend — jest
 npm run test:e2e      # browser E2E — playwright, mock executor, headless

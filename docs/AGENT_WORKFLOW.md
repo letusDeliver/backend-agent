@@ -48,6 +48,8 @@ The UI always labels which mode produced a given task's artifacts (`REAL EXECUTI
 
 After implementation, each selected specialist reviews the result from its own domain (`skills/review-routing.md`): the backend specialist reviews application behavior, the database specialist reviews persistence when applicable. A `blocking` finding sends the task back to `implementing` for a corrective pass; `warning` findings are disclosed in the final handoff but don't block completion. Bounded by `MAX_REVIEW_RETRIES` (default 2) — after that, the task becomes `blocked` rather than looping indefinitely.
 
+In real mode, the reviewer's prompt includes the actual ground-truth `git diff` patch (Phase 33) — not just the file list and test results it always received — bounded to `MAX_DIFF_PATCH_CHARS` and framed explicitly as untrusted repository content to inspect, never as instructions to follow. If the patch was truncated, the reviewer is told so explicitly and asked not to assume the omitted portion is correct. The same bounded patch is what Task Detail shows the developer. See [REAL_EXECUTION.md](REAL_EXECUTION.md#diff-content--bounded-never-silently-cut).
+
 If two specialists' blocking findings are themselves in material conflict (the same category/subject/polarity check reconciliation uses), the orchestrator doesn't attempt a corrective pass that can't satisfy both — it appends the conflict to the task's reconciliation record and blocks immediately, resolved through the same conflict-resolution endpoint described above.
 
 ## Retry — restart from inspection
