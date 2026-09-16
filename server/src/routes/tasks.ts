@@ -5,7 +5,12 @@ import { config } from "../config.js";
 import { resolveRepositoryPath } from "../utils/paths.js";
 import { ApiError } from "../middleware/errorHandler.js";
 import { describeUnresolvedQuestion, hasUnresolvedMaterialConflict, recomputeStatus } from "../orchestrator/reconciliation.js";
-import { RetryNotAllowedError, TaskNotFoundError } from "../orchestrator/taskOrchestrator.js";
+import {
+  RetryNotAllowedError,
+  TaskNotFoundError,
+  WorkspaceCleanupFailedError,
+  WorkspaceCleanupNotAllowedError,
+} from "../orchestrator/taskOrchestrator.js";
 import type { AgentType, Task, TaskCreateInput } from "../types/index.js";
 
 export const tasksRouter = Router();
@@ -142,6 +147,18 @@ tasksRouter.post("/tasks/:id/retry", async (req, res, next) => {
   } catch (err) {
     if (err instanceof TaskNotFoundError) return next(new ApiError(404, err.message));
     if (err instanceof RetryNotAllowedError) return next(new ApiError(409, err.message));
+    next(err);
+  }
+});
+
+tasksRouter.post("/tasks/:id/cleanup-workspace", async (req, res, next) => {
+  try {
+    const task = await orchestrator.cleanupWorkspace(req.params.id);
+    res.status(200).json({ task });
+  } catch (err) {
+    if (err instanceof TaskNotFoundError) return next(new ApiError(404, err.message));
+    if (err instanceof WorkspaceCleanupNotAllowedError) return next(new ApiError(409, err.message));
+    if (err instanceof WorkspaceCleanupFailedError) return next(new ApiError(500, err.message));
     next(err);
   }
 });

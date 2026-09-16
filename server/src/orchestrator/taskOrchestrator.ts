@@ -3,7 +3,7 @@ import type { TaskStore } from "../store/taskStore.js";
 import { ArtifactStore } from "../artifacts/artifactStore.js";
 import { TaskEventBus } from "../events/eventBus.js";
 import type { ClaudeCodeExecutor } from "../execution/ClaudeCodeExecutor.js";
-import { GitWorktreeManager } from "../execution/gitWorktree.js";
+import { deriveWorkspaceLocation, GitWorktreeManager } from "../execution/gitWorktree.js";
 import { loadSpecialistContract, AGENT_LABELS } from "../agents/specialistContracts.js";
 import { inspectRepository } from "./repositoryInspector.js";
 import { routeTask } from "./routingEngine.js";
@@ -26,6 +26,8 @@ import type {
 
 export class TaskNotFoundError extends Error {}
 export class RetryNotAllowedError extends Error {}
+export class WorkspaceCleanupNotAllowedError extends Error {}
+export class WorkspaceCleanupFailedError extends Error {}
 
 /**
  * Statuses `TaskOrchestrator.retry()` accepts a task from (Phase 31
@@ -33,6 +35,18 @@ export class RetryNotAllowedError extends Error {}
  * is rejected so a retry can never race a still-running attempt.
  */
 export const RETRYABLE_STATUSES = new Set<Task["status"]>(["failed", "blocked", "cancelled"]);
+
+/**
+ * Statuses `TaskOrchestrator.cleanupWorkspace()` accepts a task from
+ * (Phase 32 proposal §5). Deliberately excludes `blocked`, even though
+ * it's otherwise a "the task isn't actively running" status like the
+ * others here: `resumeAfterConflictResolution()` reaches `implement()`
+ * without ever re-preparing a workspace, so a `blocked` task's worktree
+ * must still exist for conflict resolution to keep working (architecture
+ * review §6). Every in-flight status is excluded for the same reason
+ * retry excludes them — cleanup must never race a still-running attempt.
+ */
+export const WORKSPACE_CLEANUP_ELIGIBLE_STATUSES = new Set<Task["status"]>(["completed", "failed", "cancelled"]);
 
 /**
  * Coordinates the full pipeline described in orchestrator/ORCHESTRATOR.md:
@@ -252,6 +266,87 @@ export class TaskOrchestrator {
     );
 
     void this.run(taskId);
+  }
+
+  /**
+   * In-process, synchronous test-and-set guard against two concurrent
+   * `cleanupWorkspace()` calls for the same task both passing eligibility
+   * before either is recorded. Node's single-threaded event loop makes a
+   * plain `Set` safe for this — nothing awaits between the `has()` check
+   * and the `add()` below — the same pattern `RealClaudeCodeExecutor`
+   * already uses to track per-task in-flight state (`cancelRequested`,
+   * `activeProcesses`). No distributed/file lock is needed for a
+   * single-process local MVP.
+   */
+  private readonly cleanupInProgress = new Set<string>();
+
+  /**
+   * Entry point for `POST /tasks/:id/cleanup-workspace` (Phase 32).
+   * Removes a terminal, non-blocked real-mode task's isolated git worktree
+   * and task branch via the existing, tested `GitWorktreeManager.remove()`
+   * — no new git logic is introduced here. Never mutates `task.status` or
+   * `task.error`: a cleanup failure is recorded only on
+   * `executionWorkspace.cleanupStatus`/`cleanupError`, so the task's
+   * engineering outcome and its workspace's disk lifecycle stay
+   * independent facts (architecture review §11).
+   */
+  async cleanupWorkspace(taskId: string): Promise<Task> {
+    const task = await this.taskStore.get(taskId);
+    if (!task) throw new TaskNotFoundError(`Task ${taskId} not found`);
+
+    if (this.cleanupInProgress.has(taskId)) {
+      throw new WorkspaceCleanupNotAllowedError("Workspace cleanup is already in progress for this task.");
+    }
+
+    if (task.executionMode !== "real") {
+      throw new WorkspaceCleanupNotAllowedError("Only real-mode tasks have an isolated workspace to clean up.");
+    }
+    if (!task.executionWorkspace || task.executionWorkspace.status !== "ready") {
+      throw new WorkspaceCleanupNotAllowedError("This task has no prepared workspace to clean up.");
+    }
+    if (task.executionWorkspace.cleanupStatus === "cleaned") {
+      throw new WorkspaceCleanupNotAllowedError("This task's workspace has already been cleaned up.");
+    }
+    if (task.status === "blocked") {
+      throw new WorkspaceCleanupNotAllowedError(
+        "Cannot clean up a workspace while the task is blocked — resolving the conflict or retrying the task reuses this exact workspace."
+      );
+    }
+    if (!WORKSPACE_CLEANUP_ELIGIBLE_STATUSES.has(task.status)) {
+      throw new WorkspaceCleanupNotAllowedError(`Cannot clean up a workspace while the task is in progress (status "${task.status}").`);
+    }
+
+    // Defense in depth (architecture review §3): re-derive the expected
+    // path/branch for this task id and refuse to act on anything else,
+    // even though executionWorkspace is always platform-set from the same
+    // computation and can't actually disagree today.
+    const expected = deriveWorkspaceLocation(taskId, config.tasksDir);
+    if (task.executionWorkspace.workspacePath !== expected.workspacePath || task.executionWorkspace.branch !== expected.branch) {
+      throw new WorkspaceCleanupNotAllowedError("Workspace ownership could not be verified for this task.");
+    }
+
+    this.cleanupInProgress.add(taskId);
+    try {
+      await this.worktrees.remove(task.repository, task.executionWorkspace.workspacePath, task.executionWorkspace.branch);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      task.executionWorkspace.cleanupStatus = "cleanup_failed";
+      task.executionWorkspace.cleanupError = message;
+      await this.persist(task);
+      await this.events.publish(taskId, "WORKSPACE_CLEANUP_FAILED", `Workspace cleanup failed: ${message}`, { error: message });
+      throw new WorkspaceCleanupFailedError(message);
+    } finally {
+      this.cleanupInProgress.delete(taskId);
+    }
+
+    task.executionWorkspace.cleanupStatus = "cleaned";
+    task.executionWorkspace.cleanedAt = new Date().toISOString();
+    task.executionWorkspace.cleanupError = undefined;
+    const cleaned = await this.persist(task);
+    await this.events.publish(taskId, "WORKSPACE_CLEANED", "Workspace cleaned up — isolated worktree and task branch removed.", {
+      branch: task.executionWorkspace.branch,
+    });
+    return cleaned;
   }
 
   /**

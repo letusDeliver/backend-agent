@@ -27,6 +27,19 @@ export interface DiffResult {
 }
 
 /**
+ * The workspace path and branch name are a pure function of `taskId` —
+ * computed once here so `prepare()` and Phase 32's workspace cleanup
+ * (`TaskOrchestrator.cleanupWorkspace()`) can never derive it differently
+ * from one another.
+ */
+export function deriveWorkspaceLocation(taskId: string, tasksDir: string): { workspacePath: string; branch: string } {
+  return {
+    workspacePath: path.join(tasksDir, taskId, "workspace"),
+    branch: `agent/task-${taskId}`,
+  };
+}
+
+/**
  * Every git invocation in this module uses `execFile` with an argument
  * array — never a shell string — so an unusual repository path or branch
  * name can never be interpreted as shell syntax (Phase 28 §12).
@@ -61,8 +74,7 @@ export class GitWorktreeManager {
       );
     }
 
-    const branch = `agent/task-${taskId}`;
-    const workspacePath = path.join(tasksDir, taskId, "workspace");
+    const { workspacePath, branch } = deriveWorkspaceLocation(taskId, tasksDir);
     await mkdir(path.dirname(workspacePath), { recursive: true });
 
     // Best-effort self-healing for a retried task id: clear stale worktree
@@ -134,14 +146,31 @@ export class GitWorktreeManager {
   }
 
   /**
-   * Explicit, safe cleanup — not invoked automatically by any lifecycle
-   * event in this phase (Phase 28 §16: no deletion merely because a task
-   * failed or was cancelled). Exists as the seam a future maintenance
-   * command or scheduled job can use.
+   * Explicit, safe cleanup. Not invoked automatically by any lifecycle
+   * event — only ever called for a developer-initiated action (Phase 32
+   * manual workspace cleanup; `GitWorktreeManager.prepare()`'s own
+   * self-healing removal of a stale worktree uses its own inline,
+   * still-best-effort call rather than this method, since a failure there
+   * is expected to be immediately followed by re-creating the worktree
+   * anyway).
+   *
+   * Unlike that self-healing path, this method surfaces genuine failures
+   * (a locked worktree, a permissions error, ...) by throwing — a caller
+   * that reports cleanup success to a developer must be able to trust it.
+   * It is still safely re-callable: a workspace directory or branch that's
+   * already gone is treated as already-clean, not as an error, so calling
+   * this twice in a row (or once against a workspace a developer already
+   * removed by hand) never fails.
    */
   async remove(repositoryPath: string, workspacePath: string, branch: string): Promise<void> {
-    await git(["worktree", "remove", "--force", workspacePath], repositoryPath).catch(() => undefined);
+    if (existsSync(workspacePath)) {
+      await git(["worktree", "remove", "--force", workspacePath], repositoryPath);
+    }
     await git(["worktree", "prune"], repositoryPath).catch(() => undefined);
-    await git(["branch", "-D", branch], repositoryPath).catch(() => undefined);
+
+    const existingBranch = await git(["branch", "--list", branch], repositoryPath).catch(() => "");
+    if (existingBranch.trim()) {
+      await git(["branch", "-D", branch], repositoryPath);
+    }
   }
 }
