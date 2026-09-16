@@ -56,13 +56,15 @@ export interface RealExecutionWorkspace {
 
 /**
  * An audit record of one LLM-backed decision the orchestrator made on its
- * own, in place of blocking for a developer (Phase 36) — only ever present
- * when `Task.autonomyLevel === "autonomous"`.
+ * own, in place of blocking for a developer — only ever present when
+ * `Task.autonomyLevel === "autonomous"`. `"routing"` (Phase 36) carries
+ * `agents`; `"reconciliation-conflict"` (Phase 37) carries `conflictId`.
  */
 export interface AutonomousDecision {
-  subject: "routing";
+  subject: "routing" | "reconciliation-conflict";
   decision: string;
-  agents: AgentType[];
+  agents?: AgentType[];
+  conflictId?: string;
   rationale: string;
   confidence: number;
   executionMode: ExecutionMode;

@@ -139,7 +139,7 @@
     </div>
   }
 
-  <!-- AUTONOMOUS DECISIONS (Phase 36) -->
+  <!-- AUTONOMOUS DECISIONS (Phase 36 routing, Phase 37 reconciliation conflicts) -->
   @if (task.autonomousDecisions?.length) {
     <h2 class="section-heading">Autonomous Decisions</h2>
     <div class="card autonomous-decisions">
@@ -149,7 +149,12 @@
       </p>
       @for (decision of task.autonomousDecisions; track decision.createdAt) {
         <div class="kv-row"><span class="kv-key">Decision</span><span class="kv-value">{{ decision.decision }}</span></div>
-        <div class="kv-row"><span class="kv-key">Agents selected</span><span class="kv-value">{{ decision.agents.join(', ') }}</span></div>
+        @if (decision.subject === 'routing' && decision.agents?.length) {
+          <div class="kv-row"><span class="kv-key">Agents selected</span><span class="kv-value">{{ decision.agents!.join(', ') }}</span></div>
+        }
+        @if (decision.subject === 'reconciliation-conflict' && decision.conflictId) {
+          <div class="kv-row"><span class="kv-key">Conflict resolved</span><span class="kv-value mono">{{ decision.conflictId }}</span></div>
+        }
         <div class="kv-row"><span class="kv-key">Confidence</span><span class="kv-value">{{ (decision.confidence * 100) | number: '1.0-0' }}%</span></div>
         <p class="outcome-detail">{{ decision.rationale }}</p>
       }
