@@ -189,4 +189,33 @@ describe("RealClaudeCodeExecutor — process invocation", () => {
     expect(childA.kill).toHaveBeenCalledWith("SIGTERM");
     expect(childB.kill).not.toHaveBeenCalled();
   });
+
+  it("cancelAllInFlight() sends SIGTERM to every tracked process across every task, not just one (Phase 41 follow-up)", async () => {
+    const childA = makeFakeChild();
+    const childB = makeFakeChild();
+    spawnMock.mockReturnValueOnce(childA).mockReturnValueOnce(childB);
+    const executor = new RealClaudeCodeExecutor({} as GitWorktreeManager);
+
+    void executor.analyze({
+      agent: "node-backend",
+      task: makeTask({ id: "task-a", executionWorkspace: { ...makeTask().executionWorkspace!, workspacePath: "/a" } }),
+      detectedStack: stack,
+      specialistContract: "c",
+      question: "q",
+      memoryContext: [],
+    });
+    void executor.analyze({
+      agent: "node-backend",
+      task: makeTask({ id: "task-b", executionWorkspace: { ...makeTask().executionWorkspace!, workspacePath: "/b" } }),
+      detectedStack: stack,
+      specialistContract: "c",
+      question: "q",
+      memoryContext: [],
+    });
+    await Promise.resolve();
+
+    executor.cancelAllInFlight();
+    expect(childA.kill).toHaveBeenCalledWith("SIGTERM");
+    expect(childB.kill).toHaveBeenCalledWith("SIGTERM");
+  });
 });

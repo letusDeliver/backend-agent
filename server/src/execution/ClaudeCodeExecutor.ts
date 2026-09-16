@@ -164,4 +164,14 @@ export interface ClaudeCodeExecutor {
    * synchronous/instant); real execution kills the tracked child process(es).
    */
   cancel(taskId: string): void;
+  /**
+   * Best-effort termination of *every* in-flight process, across every
+   * task — for graceful server shutdown (see index.ts's SIGTERM/SIGINT
+   * handlers), not per-task cancellation. Discovered as a real gap during
+   * manual validation: killing the orchestrator process does not, on its
+   * own, terminate `claude` CLI child processes it spawned — they were
+   * found still running real API calls for tasks nobody could ever read
+   * the result of. Mock execution has nothing to cancel.
+   */
+  cancelAllInFlight(): void;
 }

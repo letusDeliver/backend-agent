@@ -136,6 +136,10 @@ export class MockClaudeCodeExecutor implements ClaudeCodeExecutor {
     // Every mock call resolves synchronously/instantly — nothing to cancel.
   }
 
+  cancelAllInFlight(): void {
+    // Every mock call resolves synchronously/instantly — nothing to cancel.
+  }
+
   /**
    * Deterministic stand-in for the real arbitration call: a simple keyword
    * check on the requirement, defaulting to Node.js (this platform's own
