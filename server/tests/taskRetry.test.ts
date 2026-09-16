@@ -5,7 +5,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { TaskStore } from "../src/store/taskStore.js";
 import type { ArtifactStore as ArtifactStoreType } from "../src/artifacts/artifactStore.js";
 import type { TaskOrchestrator as TaskOrchestratorType, RetryNotAllowedError as RetryNotAllowedErrorType, TaskNotFoundError as TaskNotFoundErrorType } from "../src/orchestrator/taskOrchestrator.js";
-import type { ClaudeCodeExecutor, AnalyzeParams, ConflictResolutionDecision, ConflictResolutionParams, DirectionDecision, DirectionDecisionParams, ImplementParams, ReviewParams, RunTestsParams } from "../src/execution/ClaudeCodeExecutor.js";
+import type { ClaudeCodeExecutor, AnalyzeParams, ConflictResolutionDecision, ConflictResolutionParams, DecomposeRequirementParams, DirectionDecision, DirectionDecisionParams, ImplementParams, ReviewParams, RunTestsParams, SubtaskDefinition } from "../src/execution/ClaudeCodeExecutor.js";
 import type { ExecutionReport, ReviewReport, SpecialistReport, Task, TaskStatus, TestRunResult } from "../src/types/index.js";
 
 /**
@@ -75,6 +75,10 @@ class BlockOnFirstAttemptExecutor implements ClaudeCodeExecutor {
 
   async decideConflictResolution(_params: ConflictResolutionParams): Promise<ConflictResolutionDecision> {
     throw new Error("decideConflictResolution is not exercised by this fixture.");
+  }
+
+  async decomposeRequirement(_params: DecomposeRequirementParams): Promise<SubtaskDefinition[]> {
+    throw new Error("decomposeRequirement is not exercised by this fixture.");
   }
 }
 
