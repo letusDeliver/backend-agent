@@ -1,0 +1,47 @@
+# Dependencies — installed fresh inside the image
+**/node_modules
+
+# Build output — rebuilt inside the image
+**/dist
+**/build
+**/out-tsc
+**/.angular
+**/*.tsbuildinfo
+
+# Test coverage / Playwright artifacts
+**/coverage
+e2e/test-results
+e2e/playwright-report
+e2e/blob-report
+e2e/playwright/.cache
+
+# Logs
+**/*.log
+npm-debug.log*
+
+# Environment / secrets — never bake these into an image
+.env
+.env.*
+!.env.example
+
+# Editor / OS
+.DS_Store
+Thumbs.db
+.idea
+**/*.swp
+.vscode
+
+# Runtime task workspaces and the local JSON data store — created fresh
+# inside the container, never copied in from the host.
+tasks
+data
+
+# VCS and project docs — not needed to build or run the app
+.git
+.github
+docs
+
+# Docker meta files themselves — never need to be inside their own context
+Dockerfile*
+docker-compose*.yml
+.dockerignore

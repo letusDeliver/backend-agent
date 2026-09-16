@@ -81,4 +81,13 @@ export const config = {
   get maxRequirementDocChars(): number {
     return Number(process.env.MAX_REQUIREMENT_DOC_CHARS ?? 20_000);
   },
+  // Containerized/production deployment only: the built Angular static
+  // output, served by this same Express process alongside the API (see
+  // app.ts). Local dev never has anything at this path (the web workspace
+  // is served separately by `ng serve` instead), so app.ts checks
+  // existence before mounting it — this getter never does I/O itself,
+  // matching every other property here.
+  get webDistPath(): string {
+    return process.env.WEB_DIST_PATH ?? path.join(repoRoot, "web-dist");
+  },
 };

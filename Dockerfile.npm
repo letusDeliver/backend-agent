@@ -1,0 +1,65 @@
+# syntax=docker/dockerfile:1
+#
+# npm-based image for the Backend Engineering Agent Platform. Builds both
+# workspaces (server + web) with the project's own npm toolchain, then
+# serves the compiled API and the built Angular app from a single Node
+# process. See Dockerfile.bun for the Bun-based equivalent.
+#
+# Build:  docker build -f Dockerfile.npm -t backend-agent:npm .
+# Run:    docker run --rm -p 4400:4400 backend-agent:npm
+# Then:   curl http://localhost:4400/api/stats
+
+# ---- Build stage: install dependencies, compile both workspaces ----
+FROM node:22-alpine AS build
+WORKDIR /app
+
+# Manifests only, first — this layer only re-runs when a dependency
+# actually changes, not on every source edit.
+COPY package.json package-lock.json ./
+COPY server/package.json server/package.json
+COPY web/package.json web/package.json
+COPY e2e/package.json e2e/package.json
+RUN npm ci
+
+COPY server server
+COPY web web
+COPY claude-code-platform-architecture-v0.1 claude-code-platform-architecture-v0.1
+
+RUN npm run build --workspace server
+RUN npm run build --workspace web
+
+# ---- Runtime stage: only what's needed to run the already-built app ----
+FROM node:22-alpine AS runtime
+WORKDIR /app
+
+ENV NODE_ENV=production
+ENV PORT=4400
+# Real execution shells out to the `claude` CLI, which this image does not
+# install — mock mode is the only mode this image can run without further
+# setup. Override explicitly (and install the CLI + mount credentials) if
+# real execution inside a container is genuinely needed.
+ENV CLAUDE_EXECUTION_MODE=mock
+
+# npm workspaces hoist shared dependencies (express, cors, ...) into the
+# one root node_modules — copying it, plus the compiled server output, is
+# enough for Node's normal upward node_modules lookup to resolve
+# everything from server/dist/index.js. No separate `npm install
+# --omit=dev` step is needed (and workspaces have no per-package lockfile
+# to run it against cleanly).
+COPY --from=build /app/node_modules ./node_modules
+COPY --from=build /app/server/package.json ./server/package.json
+COPY --from=build /app/server/dist ./server/dist
+# Angular 22's build output nests the actual servable static files one
+# level deeper, under browser/ (dist/web itself only holds licensing/
+# prerender metadata) — confirmed by inspecting a real build, not assumed.
+COPY --from=build /app/web/dist/web/browser ./web-dist
+COPY --from=build /app/claude-code-platform-architecture-v0.1 ./claude-code-platform-architecture-v0.1
+
+# server/src/config.ts derives repoRoot as one directory above the
+# server process's own cwd — matching local dev's `npm run dev --workspace
+# server` (cwd = <repo>/server) keeps dataDir/tasksDir/agentsDir/
+# webDistPath all correct with zero extra environment variables.
+WORKDIR /app/server
+
+EXPOSE 4400
+CMD ["node", "dist/index.js"]
