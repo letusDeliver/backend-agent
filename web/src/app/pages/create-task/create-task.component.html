@@ -75,6 +75,20 @@
     </span>
   </div>
 
+  <div class="field field-checkbox">
+    <label class="checkbox-label">
+      <input id="decomposeRequirement" type="checkbox" formControlName="decomposeRequirement" />
+      Break this into a backlog and implement it step by step
+    </label>
+    <span class="hint">
+      Default (unchecked): one plan, one implementation pass, one review — the usual pipeline. Checked: the
+      orchestrator first splits the requirement into an ordered list of smaller steps, then implements and reviews
+      each one in turn, stopping at the first step that can't pass review rather than building later steps on an
+      unreviewed foundation. Use this for a requirement too large for a single pass (a real greenfield build hit
+      exactly that wall in testing) — each step gets its own bounded attempt instead of one all-or-nothing one.
+    </span>
+  </div>
+
   @if (error(); as errorMessage) {
     <div class="error-banner">{{ errorMessage }}</div>
   }

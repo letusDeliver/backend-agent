@@ -62,6 +62,7 @@ describe('CreateTaskComponent', () => {
       constraints: '',
       autonomousMode: false,
       requirementDocPaths: '',
+      decomposeRequirement: false,
     });
 
     component.submit();
@@ -85,6 +86,7 @@ describe('CreateTaskComponent', () => {
       constraints: '',
       autonomousMode: true,
       requirementDocPaths: '',
+      decomposeRequirement: false,
     });
 
     component.submit();
@@ -104,6 +106,7 @@ describe('CreateTaskComponent', () => {
       constraints: '',
       autonomousMode: false,
       requirementDocPaths: 'docs/requirements.md, docs/login-flow.md\ndocs/tasks.md',
+      decomposeRequirement: false,
     });
 
     component.submit();
@@ -111,6 +114,26 @@ describe('CreateTaskComponent', () => {
     expect(taskServiceSpy.createTask).toHaveBeenCalledWith(
       expect.objectContaining({ requirementDocPaths: ['docs/requirements.md', 'docs/login-flow.md', 'docs/tasks.md'] })
     );
+  });
+
+  it('sends decomposeRequirement: true when the backlog checkbox is checked', () => {
+    const fixture = TestBed.createComponent(CreateTaskComponent);
+    const component = fixture.componentInstance;
+    component.form.setValue({
+      title: '',
+      requirement: 'Build a whole school management backend.',
+      repository: '/Users/dev/projects/school-service',
+      preferredTechnology: '',
+      preferredDatabase: '',
+      constraints: '',
+      autonomousMode: false,
+      requirementDocPaths: '',
+      decomposeRequirement: true,
+    });
+
+    component.submit();
+
+    expect(taskServiceSpy.createTask).toHaveBeenCalledWith(expect.objectContaining({ decomposeRequirement: true }));
   });
 
   it('omits requirementDocPaths when the field is left blank', () => {
@@ -125,6 +148,7 @@ describe('CreateTaskComponent', () => {
       constraints: '',
       autonomousMode: false,
       requirementDocPaths: '',
+      decomposeRequirement: false,
     });
 
     component.submit();
@@ -147,6 +171,7 @@ describe('CreateTaskComponent', () => {
       constraints: '',
       autonomousMode: false,
       requirementDocPaths: '',
+      decomposeRequirement: false,
     });
 
     component.submit();

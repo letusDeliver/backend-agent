@@ -277,6 +277,26 @@ export class TaskDetailComponent implements OnInit, OnDestroy {
     return STAGE_SEQUENCE.findIndex((s) => s.key === stageKey);
   }
 
+  /** How many backlog steps (Phase 39) have completed so far, for the section heading. */
+  subtasksCompletedCount(): number {
+    return this.task()?.subtasks?.filter((s) => s.status === 'completed').length ?? 0;
+  }
+
+  subtaskBadgeColor(status: string): string {
+    switch (status) {
+      case 'completed':
+        return 'green';
+      case 'blocked':
+      case 'failed':
+        return 'red';
+      case 'implementing':
+      case 'reviewing':
+        return 'blue';
+      default:
+        return 'neutral';
+    }
+  }
+
   /**
    * Gates each artifact fetch on how far the task's own `currentStage`
    * actually got — not on `task.status` (Phase 34 fix). Before this fix,

@@ -84,6 +84,19 @@ export interface AutonomousDecision {
   createdAt: string;
 }
 
+/**
+ * One step in a decomposed implementation backlog (Phase 39) — only ever
+ * present when `Task.decomposeRequirement === true`.
+ */
+export interface Subtask {
+  id: string;
+  index: number;
+  total: number;
+  title: string;
+  description: string;
+  status: "pending" | "implementing" | "reviewing" | "completed" | "blocked" | "failed";
+}
+
 export interface Task {
   id: string;
   title: string;
@@ -102,6 +115,8 @@ export interface Task {
   autonomousDecisions?: AutonomousDecision[];
   requirementDocPaths?: string[];
   requirementDocs?: RequirementDocExcerpt[];
+  decomposeRequirement?: boolean;
+  subtasks?: Subtask[];
   executionWorkspace?: RealExecutionWorkspace;
   attempt: number;
   createdAt: string;
@@ -118,6 +133,7 @@ export interface TaskCreateInput {
   constraints?: string;
   autonomyLevel?: AutonomyLevel;
   requirementDocPaths?: string[];
+  decomposeRequirement?: boolean;
 }
 
 /**
@@ -159,7 +175,11 @@ export type EventType =
   | "WORKSPACE_CLEANED"
   | "WORKSPACE_CLEANUP_FAILED"
   | "AUTONOMOUS_DECISION_MADE"
-  | "REQUIREMENT_DOCS_READ";
+  | "REQUIREMENT_DOCS_READ"
+  | "SUBTASKS_DECOMPOSED"
+  | "SUBTASK_STARTED"
+  | "SUBTASK_COMPLETED"
+  | "SUBTASK_BLOCKED";
 
 export interface TaskEvent {
   id: string;

@@ -26,6 +26,7 @@ export class CreateTaskComponent {
     constraints: [''],
     autonomousMode: [false],
     requirementDocPaths: [''],
+    decomposeRequirement: [false],
   });
 
   constructor(
@@ -52,6 +53,7 @@ export class CreateTaskComponent {
         constraints: value.constraints || undefined,
         autonomyLevel: value.autonomousMode ? 'autonomous' : 'advisory',
         requirementDocPaths: this.parseDocPaths(value.requirementDocPaths),
+        decomposeRequirement: value.decomposeRequirement ?? false,
       })
       .pipe(switchMap(({ task }) => this.taskService.startTask(task.id).pipe(map(() => task))))
       .subscribe({

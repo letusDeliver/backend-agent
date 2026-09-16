@@ -210,6 +210,10 @@ export class TaskService {
         "WORKSPACE_CLEANUP_FAILED",
         "AUTONOMOUS_DECISION_MADE",
         "REQUIREMENT_DOCS_READ",
+        "SUBTASKS_DECOMPOSED",
+        "SUBTASK_STARTED",
+        "SUBTASK_COMPLETED",
+        "SUBTASK_BLOCKED",
       ];
       for (const type of allEventTypes) {
         source.addEventListener(type, handler as EventListener);

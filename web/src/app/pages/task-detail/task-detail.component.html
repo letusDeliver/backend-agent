@@ -139,6 +139,23 @@
     </div>
   }
 
+  <!-- BACKLOG / SUBTASKS (Phase 39) -->
+  @if (task.subtasks?.length) {
+    <h2 class="section-heading">Backlog ({{ subtasksCompletedCount() }}/{{ task.subtasks!.length }} steps done)</h2>
+    <div class="card subtasks">
+      <p class="hint">
+        This task was decomposed into a backlog and is being (or was) implemented and reviewed one step at a time.
+      </p>
+      @for (subtask of task.subtasks; track subtask.id) {
+        <div class="kv-row subtask-row">
+          <span class="kv-key">{{ subtask.index }}/{{ subtask.total }} — {{ subtask.title }}</span>
+          <span class="badge" [ngClass]="'badge-' + subtaskBadgeColor(subtask.status)">{{ subtask.status }}</span>
+        </div>
+        <p class="outcome-detail">{{ subtask.description }}</p>
+      }
+    </div>
+  }
+
   <!-- REQUIREMENT DOCS (Phase 38) -->
   @if (task.requirementDocs?.length) {
     <h2 class="section-heading">Requirement Docs</h2>
