@@ -60,15 +60,34 @@ describe('CreateTaskComponent', () => {
       preferredTechnology: '',
       preferredDatabase: '',
       constraints: '',
+      autonomousMode: false,
     });
 
     component.submit();
 
     expect(taskServiceSpy.createTask).toHaveBeenCalledWith(
-      expect.objectContaining({ requirement: 'Add an order creation API with PostgreSQL persistence.' })
+      expect.objectContaining({ requirement: 'Add an order creation API with PostgreSQL persistence.', autonomyLevel: 'advisory' })
     );
     expect(taskServiceSpy.startTask).toHaveBeenCalledWith('new-task-1');
     expect(router.navigate).toHaveBeenCalledWith(['/tasks', 'new-task-1']);
+  });
+
+  it('sends autonomyLevel "autonomous" when the autonomous-mode checkbox is checked', () => {
+    const fixture = TestBed.createComponent(CreateTaskComponent);
+    const component = fixture.componentInstance;
+    component.form.setValue({
+      title: '',
+      requirement: 'Build whatever makes sense here.',
+      repository: '/Users/dev/projects/empty-service',
+      preferredTechnology: '',
+      preferredDatabase: '',
+      constraints: '',
+      autonomousMode: true,
+    });
+
+    component.submit();
+
+    expect(taskServiceSpy.createTask).toHaveBeenCalledWith(expect.objectContaining({ autonomyLevel: 'autonomous' }));
   });
 
   it('surfaces a validation error from the API instead of navigating', () => {
@@ -84,6 +103,7 @@ describe('CreateTaskComponent', () => {
       preferredTechnology: '',
       preferredDatabase: '',
       constraints: '',
+      autonomousMode: false,
     });
 
     component.submit();

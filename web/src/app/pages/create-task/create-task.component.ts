@@ -24,6 +24,7 @@ export class CreateTaskComponent {
     preferredTechnology: [''],
     preferredDatabase: [''],
     constraints: [''],
+    autonomousMode: [false],
   });
 
   constructor(
@@ -48,6 +49,7 @@ export class CreateTaskComponent {
         preferredTechnology: value.preferredTechnology || undefined,
         preferredDatabase: value.preferredDatabase || undefined,
         constraints: value.constraints || undefined,
+        autonomyLevel: value.autonomousMode ? 'autonomous' : 'advisory',
       })
       .pipe(switchMap(({ task }) => this.taskService.startTask(task.id).pipe(map(() => task))))
       .subscribe({

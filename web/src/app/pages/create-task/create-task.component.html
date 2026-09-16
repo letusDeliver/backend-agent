@@ -45,6 +45,20 @@
     <textarea id="constraints" formControlName="constraints" rows="3" placeholder="Must preserve the existing public API."></textarea>
   </div>
 
+  <div class="field field-checkbox">
+    <label class="checkbox-label">
+      <input id="autonomousMode" type="checkbox" formControlName="autonomousMode" />
+      Let the orchestrator decide the direction if I'm ambiguous
+    </label>
+    <span class="hint">
+      Default (unchecked): if repository inspection is inconclusive and this requirement doesn't name a backend
+      technology, the task blocks for you to resolve — nothing changes about that. Checked: the orchestrator makes
+      that one decision itself (which backend language and specialists to use) and proceeds, recording its rationale
+      and confidence on the task for you to review afterward. Every other human-approval gate in the pipeline
+      (engineering conflicts, memory lessons) is unaffected either way.
+    </span>
+  </div>
+
   @if (error(); as errorMessage) {
     <div class="error-banner">{{ errorMessage }}</div>
   }

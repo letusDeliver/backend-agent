@@ -208,6 +208,7 @@ export class TaskService {
         "TASK_RETRIED",
         "WORKSPACE_CLEANED",
         "WORKSPACE_CLEANUP_FAILED",
+        "AUTONOMOUS_DECISION_MADE",
       ];
       for (const type of allEventTypes) {
         source.addEventListener(type, handler as EventListener);

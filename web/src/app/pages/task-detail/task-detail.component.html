@@ -139,6 +139,23 @@
     </div>
   }
 
+  <!-- AUTONOMOUS DECISIONS (Phase 36) -->
+  @if (task.autonomousDecisions?.length) {
+    <h2 class="section-heading">Autonomous Decisions</h2>
+    <div class="card autonomous-decisions">
+      <p class="hint">
+        This task ran with autonomous mode enabled. Where the pipeline would otherwise have blocked for you, it
+        decided a direction itself instead — recorded here for you to review.
+      </p>
+      @for (decision of task.autonomousDecisions; track decision.createdAt) {
+        <div class="kv-row"><span class="kv-key">Decision</span><span class="kv-value">{{ decision.decision }}</span></div>
+        <div class="kv-row"><span class="kv-key">Agents selected</span><span class="kv-value">{{ decision.agents.join(', ') }}</span></div>
+        <div class="kv-row"><span class="kv-key">Confidence</span><span class="kv-value">{{ (decision.confidence * 100) | number: '1.0-0' }}%</span></div>
+        <p class="outcome-detail">{{ decision.rationale }}</p>
+      }
+    </div>
+  }
+
   <!-- PREVIOUS ATTEMPTS -->
   @if (attempts().length) {
     <h2 class="section-heading">Previous Attempts</h2>

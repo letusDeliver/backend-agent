@@ -19,6 +19,14 @@ export type TaskStatus =
 export type AgentType = "python-backend" | "node-backend" | "database";
 export type ExecutionMode = "real" | "mock";
 
+/**
+ * "advisory" (default) is every existing human-gated blocking behavior,
+ * unchanged. "autonomous" is an explicit per-task opt-in that lets the
+ * orchestrator decide a direction itself, at the one decision point Phase
+ * 36 covers, instead of blocking (Phase 36).
+ */
+export type AutonomyLevel = "advisory" | "autonomous";
+
 export interface DetectedStack {
   language: "python" | "node" | "unknown";
   packageManager: string | null;
@@ -46,6 +54,21 @@ export interface RealExecutionWorkspace {
   cleanupError?: string;
 }
 
+/**
+ * An audit record of one LLM-backed decision the orchestrator made on its
+ * own, in place of blocking for a developer (Phase 36) — only ever present
+ * when `Task.autonomyLevel === "autonomous"`.
+ */
+export interface AutonomousDecision {
+  subject: "routing";
+  decision: string;
+  agents: AgentType[];
+  rationale: string;
+  confidence: number;
+  executionMode: ExecutionMode;
+  createdAt: string;
+}
+
 export interface Task {
   id: string;
   title: string;
@@ -60,6 +83,8 @@ export interface Task {
   currentStage: string;
   executionMode: ExecutionMode;
   reviewRetryCount: number;
+  autonomyLevel?: AutonomyLevel;
+  autonomousDecisions?: AutonomousDecision[];
   executionWorkspace?: RealExecutionWorkspace;
   attempt: number;
   createdAt: string;
@@ -74,6 +99,7 @@ export interface TaskCreateInput {
   preferredTechnology?: string;
   preferredDatabase?: string;
   constraints?: string;
+  autonomyLevel?: AutonomyLevel;
 }
 
 /**
@@ -113,7 +139,8 @@ export type EventType =
   | "TASK_CANCELLED"
   | "TASK_RETRIED"
   | "WORKSPACE_CLEANED"
-  | "WORKSPACE_CLEANUP_FAILED";
+  | "WORKSPACE_CLEANUP_FAILED"
+  | "AUTONOMOUS_DECISION_MADE";
 
 export interface TaskEvent {
   id: string;
