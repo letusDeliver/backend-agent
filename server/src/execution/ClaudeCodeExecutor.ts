@@ -12,6 +12,7 @@ import type {
   TestRunResult,
 } from "../types/index.js";
 import type { ContextPackEntry } from "../memory/contextPack.js";
+import type { ImplementProgressEvent } from "./streamJsonParser.js";
 
 /**
  * Phase 39: identifies which backlog step an `implement()`/`review()` call
@@ -47,6 +48,15 @@ export interface ImplementParams {
   plan: ImplementationPlan;
   detectedStack: DetectedStack;
   activeSubtask?: ActiveSubtask;
+  /**
+   * Phase 41: called synchronously, zero or more times, as the real
+   * `claude` CLI streams tool calls (Write/Edit/Bash/...) and assistant
+   * text during this implementation pass — never a batch summary at the
+   * end. Optional: mock execution never calls it (nothing real is
+   * happening to report), and no existing fixture/test needs to change to
+   * keep compiling.
+   */
+  onProgress?: (event: ImplementProgressEvent) => void;
 }
 
 export interface RunTestsParams {

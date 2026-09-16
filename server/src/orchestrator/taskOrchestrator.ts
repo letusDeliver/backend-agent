@@ -27,6 +27,7 @@ import type {
   Task,
 } from "../types/index.js";
 import type { ActiveSubtask } from "../execution/ClaudeCodeExecutor.js";
+import type { ImplementProgressEvent } from "../execution/streamJsonParser.js";
 
 export class TaskNotFoundError extends Error {}
 export class RetryNotAllowedError extends Error {}
@@ -750,9 +751,57 @@ export class TaskOrchestrator {
     return reports;
   }
 
+  /**
+   * Phase 41. Real execution calls this synchronously, zero or more times,
+   * as `claude` streams tool calls/text during `implement()` — never
+   * awaited, since a progress message is informational and must never be
+   * allowed to slow down or fail the implementation pass itself. Mock
+   * execution never calls it.
+   */
+  /**
+   * `onProgress` fires synchronously, possibly many times back to back,
+   * from inside the streaming stdout handler — `publish()` itself is
+   * async (it appends to disk), and multiple unawaited `appendEvent()`
+   * calls have no ordering guarantee relative to each other (each is an
+   * independent open/write/close, and Node's libuv thread pool does not
+   * promise FIFO completion order for concurrent filesystem calls).
+   * Chaining onto one queue promise serializes the actual disk writes into
+   * call order without ever making the synchronous `onProgress` caller
+   * wait. `drain()` additionally lets the caller wait for every queued
+   * write to land before publishing `IMPLEMENTATION_COMPLETED` — without
+   * it, the very last progress event can race that completion event and
+   * land after it, which looked exactly as confusing as it sounds when
+   * first observed (a flaky test caught this before it reached the UI).
+   * A rejected write is swallowed at drain time — a progress message is
+   * informational only and must never fail the implementation pass itself.
+   */
+  private makeProgressCallback(taskId: string): { onProgress: (event: ImplementProgressEvent) => void; drain: () => Promise<void> } {
+    let queue: Promise<unknown> = Promise.resolve();
+    const onProgress = (event: ImplementProgressEvent): void => {
+      const label = event.kind === "tool_use" ? `${event.tool}: ${event.detail}` : event.detail;
+      queue = queue.then(() =>
+        this.events.publish(taskId, "IMPLEMENTATION_PROGRESS", label, {
+          kind: event.kind,
+          tool: event.tool,
+          detail: event.detail,
+        })
+      );
+    };
+    const drain = (): Promise<void> => queue.then(() => undefined, () => undefined);
+    return { onProgress, drain };
+  }
+
   private async implement(task: Task, plan: ImplementationPlan, activeSubtask?: ActiveSubtask): Promise<ExecutionReport> {
     await this.events.publish(task.id, "IMPLEMENTATION_STARTED", `Implementation started (${task.executionMode.toUpperCase()} execution).`);
-    const report = await this.executor.implement({ task, plan, detectedStack: task.detectedStack!, activeSubtask });
+    const progress = this.makeProgressCallback(task.id);
+    const report = await this.executor.implement({
+      task,
+      plan,
+      detectedStack: task.detectedStack!,
+      activeSubtask,
+      onProgress: progress.onProgress,
+    });
+    await progress.drain();
     const tests = await this.executor.runTests({ task, detectedStack: task.detectedStack! });
     report.tests = tests;
     if (tests.some((t) => t.status === "failed")) report.status = "failed";
@@ -837,7 +886,15 @@ export class TaskOrchestrator {
 
       task = await this.setStage(task, "implementing", "implementing");
       await this.events.publish(task.id, "IMPLEMENTATION_STARTED", `Corrective implementation pass (attempt ${attempt + 1}).`);
-      executionReport = await this.executor.implement({ task, plan, detectedStack: task.detectedStack!, activeSubtask });
+      const correctiveProgress = this.makeProgressCallback(task.id);
+      executionReport = await this.executor.implement({
+        task,
+        plan,
+        detectedStack: task.detectedStack!,
+        activeSubtask,
+        onProgress: correctiveProgress.onProgress,
+      });
+      await correctiveProgress.drain();
       const tests = await this.executor.runTests({ task, detectedStack: task.detectedStack! });
       executionReport.tests = tests;
       await this.artifacts.writeExecutionReport(executionReport);

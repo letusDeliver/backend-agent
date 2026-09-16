@@ -4,6 +4,7 @@ import { promisify } from "node:util";
 import { config } from "../config.js";
 import { GitWorktreeManager } from "./gitWorktree.js";
 import { buildClaudeEnvironment } from "./claudeEnvironment.js";
+import { parseStreamJsonLine, type ImplementProgressEvent } from "./streamJsonParser.js";
 import type {
   ClaudeCodeExecutor,
   AnalyzeParams,
@@ -193,6 +194,94 @@ export class RealClaudeCodeExecutor implements ClaudeCodeExecutor {
     });
   }
 
+  /**
+   * Phase 41. Only `implement()` uses this — `analyze()`/`review()`/the
+   * autonomous decision methods stay on the batch `runClaudeCli()` above;
+   * "watching code get written" is specifically about implementation, and
+   * widening streaming to every call site was explicitly out of scope (see
+   * docs/PHASE_41_COMPLETION_REPORT.md). Deliberately omits
+   * `--include-partial-messages`: the fully-formed `"assistant"` message
+   * lines `streamJsonParser.ts` consumes arrive without it, confirmed
+   * empirically against the real CLI — this platform only needs "which
+   * tool, touching what," not character-by-character text deltas, so the
+   * extra event volume that flag adds is pure overhead here.
+   */
+  private async runClaudeCliStreaming(
+    taskId: string,
+    prompt: string,
+    cwd: string,
+    permissionMode: string,
+    onProgress?: (event: ImplementProgressEvent) => void
+  ): Promise<{ stdout: string; durationMs: number }> {
+    return new Promise((resolve, reject) => {
+      const args = ["-p", prompt, "--output-format", "stream-json", "--verbose", "--permission-mode", permissionMode, "--add-dir", cwd];
+      const startedAt = Date.now();
+      const child = spawn(config.claudeCliPath, args, { cwd, timeout: config.claudeTimeoutMs, env: buildClaudeEnvironment() });
+      this.track(taskId, child);
+
+      let lineBuffer = "";
+      let finalResultLine: string | null = null;
+      let stderr = "";
+
+      const consumeLine = (line: string): void => {
+        const parsed = parseStreamJsonLine(line);
+        if (parsed.finalResultLine) finalResultLine = parsed.finalResultLine;
+        if (onProgress) {
+          for (const event of parsed.progressEvents) onProgress(event);
+        }
+      };
+
+      child.stdout.on("data", (chunk) => {
+        lineBuffer += chunk.toString();
+        let newlineIndex: number;
+        while ((newlineIndex = lineBuffer.indexOf("\n")) !== -1) {
+          consumeLine(lineBuffer.slice(0, newlineIndex));
+          lineBuffer = lineBuffer.slice(newlineIndex + 1);
+        }
+      });
+      child.stderr.on("data", (chunk) => (stderr += chunk.toString()));
+
+      child.on("error", (err) => {
+        this.untrack(taskId, child);
+        reject(new ClaudeCliError(`Failed to launch claude CLI: ${err.message}`));
+      });
+
+      child.on("close", (code, signal) => {
+        this.untrack(taskId, child);
+        // The stream may end with a final line that has no trailing
+        // newline (observed in practice, and never guaranteed by any NDJSON
+        // spec) — without this, that last line — often the terminal
+        // "result" line itself — would sit unparsed in the buffer forever.
+        if (lineBuffer.trim()) {
+          consumeLine(lineBuffer);
+          lineBuffer = "";
+        }
+        const durationMs = Date.now() - startedAt;
+
+        if (code === 0 && finalResultLine) {
+          resolve({ stdout: finalResultLine, durationMs });
+          return;
+        }
+
+        if (signal === "SIGTERM" || signal === "SIGKILL") {
+          if (this.cancelRequested.has(taskId)) {
+            reject(new ClaudeCliError(`claude CLI cancelled by developer request after ${durationMs}ms.`));
+          } else {
+            reject(new ClaudeCliError(`claude CLI timed out after ${config.claudeTimeoutMs}ms and was terminated.`));
+          }
+          return;
+        }
+
+        if (code === 0 && !finalResultLine) {
+          reject(new ClaudeCliError("claude CLI exited successfully but no terminal result line was found in its stream-json output."));
+          return;
+        }
+
+        reject(new ClaudeCliError(`claude CLI exited with code ${code}: ${stderr.slice(0, 2000)}`));
+      });
+    });
+  }
+
   private parseResultText(stdout: string): string {
     let envelope: { result?: string; subtype?: string };
     try {
@@ -275,7 +364,7 @@ export class RealClaudeCodeExecutor implements ClaudeCodeExecutor {
     }
   }
 
-  async implement({ task, plan, detectedStack, activeSubtask }: ImplementParams): Promise<ExecutionReport> {
+  async implement({ task, plan, detectedStack, activeSubtask, onProgress }: ImplementParams): Promise<ExecutionReport> {
     const prompt = [
       `Implement the following reconciled engineering plan inside this repository.`,
       `Task: ${task.title}`,
@@ -303,7 +392,7 @@ export class RealClaudeCodeExecutor implements ClaudeCodeExecutor {
     try {
       const cwd = this.workspaceOf(task);
       const ws = task.executionWorkspace!;
-      const { stdout, durationMs } = await this.runClaudeCli(task.id, prompt, cwd, "acceptEdits");
+      const { stdout, durationMs } = await this.runClaudeCliStreaming(task.id, prompt, cwd, "acceptEdits", onProgress);
       const resultText = this.parseResultText(stdout);
       const payload = this.extractJsonPayload<{ changedFiles: string[]; commandsExecuted: string[]; notes: string[] }>(resultText);
 
