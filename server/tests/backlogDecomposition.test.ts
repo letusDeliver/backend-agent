@@ -156,6 +156,10 @@ class ScriptedSubtaskExecutor implements ClaudeCodeExecutor {
     // synchronous fixture — nothing to cancel
   }
 
+  cancelAllInFlight(): void {
+    // synchronous fixture — nothing to cancel
+  }
+
   async decideDirection(_params: DirectionDecisionParams): Promise<DirectionDecision> {
     throw new Error("decideDirection is not exercised by this fixture.");
   }

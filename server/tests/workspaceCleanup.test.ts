@@ -73,6 +73,10 @@ class AlwaysPassRealExecutor implements ClaudeCodeExecutor {
     // synchronous fixture — nothing to cancel
   }
 
+  cancelAllInFlight(): void {
+    // synchronous fixture — nothing to cancel
+  }
+
   async decideDirection(_params: DirectionDecisionParams): Promise<DirectionDecision> {
     throw new Error("decideDirection is not exercised by this fixture.");
   }
@@ -149,6 +153,10 @@ class ConflictingRealExecutor implements ClaudeCodeExecutor {
   }
 
   cancel(_taskId: string): void {
+    // synchronous fixture — nothing to cancel
+  }
+
+  cancelAllInFlight(): void {
     // synchronous fixture — nothing to cancel
   }
 
