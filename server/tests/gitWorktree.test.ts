@@ -107,6 +107,82 @@ describe("GitWorktreeManager.commitChanges + diff", () => {
   });
 });
 
+describe("GitWorktreeManager.diff — patch content (Phase 33)", () => {
+  it("captures the actual patch content, matching an independently-run git diff", async () => {
+    const info = await manager.prepare(repoDir, "task-10", tasksDir);
+    await writeFile(path.join(info.workspacePath, "new-file.txt"), "line one\nline two\n");
+    await manager.commitChanges(info.workspacePath, "Agent: add new file");
+
+    const diff = await manager.diff(info.workspacePath, info.baseRevision);
+    const independentPatch = await git(["diff", info.baseRevision, "HEAD"], info.workspacePath);
+
+    expect(diff.patch).toBe(independentPatch);
+    expect(diff.truncated).toBe(false);
+    expect(diff.totalPatchChars).toBe(independentPatch.length);
+    expect(diff.patch).toContain("+line one");
+    expect(diff.patch).toContain("+line two");
+  });
+
+  it("reports an empty, non-truncated patch when nothing was committed", async () => {
+    const info = await manager.prepare(repoDir, "task-11", tasksDir);
+    const diff = await manager.diff(info.workspacePath, info.baseRevision);
+    expect(diff.files).toHaveLength(0);
+    expect(diff.patch).toBe("");
+    expect(diff.truncated).toBe(false);
+    expect(diff.totalPatchChars).toBe(0);
+  });
+
+  it("does not truncate a patch that fits exactly within the limit", async () => {
+    const info = await manager.prepare(repoDir, "task-12", tasksDir);
+    await writeFile(path.join(info.workspacePath, "sized.txt"), "content\n");
+    await manager.commitChanges(info.workspacePath, "Agent: add sized file");
+
+    const full = await manager.diff(info.workspacePath, info.baseRevision, 10_000_000);
+    const atLimit = await manager.diff(info.workspacePath, info.baseRevision, full.totalPatchChars);
+
+    expect(atLimit.truncated).toBe(false);
+    expect(atLimit.patch).toBe(full.patch);
+  });
+
+  it("truncates a patch that exceeds the limit, explicitly and deterministically", async () => {
+    const info = await manager.prepare(repoDir, "task-13", tasksDir);
+    await writeFile(path.join(info.workspacePath, "sized.txt"), "content\n");
+    await manager.commitChanges(info.workspacePath, "Agent: add sized file");
+
+    const full = await manager.diff(info.workspacePath, info.baseRevision, 10_000_000);
+    const overLimit = await manager.diff(info.workspacePath, info.baseRevision, full.totalPatchChars - 1);
+
+    expect(overLimit.truncated).toBe(true);
+    expect(overLimit.patch.length).toBeLessThanOrEqual(full.totalPatchChars - 1);
+    expect(overLimit.patch).toContain("diff truncated");
+    expect(overLimit.totalPatchChars).toBe(full.totalPatchChars);
+  });
+
+  it("cuts at a file boundary rather than mid-hunk when the limit falls between two files' sections", async () => {
+    const info = await manager.prepare(repoDir, "task-14", tasksDir);
+    await writeFile(path.join(info.workspacePath, "first.txt"), "alpha\nbeta\n");
+    await writeFile(
+      path.join(info.workspacePath, "second.txt"),
+      Array.from({ length: 50 }, (_, i) => `line-${i}`).join("\n") + "\n"
+    );
+    await manager.commitChanges(info.workspacePath, "Agent: add two files");
+
+    const full = await manager.diff(info.workspacePath, info.baseRevision, 10_000_000);
+    const secondFileBoundary = full.patch.indexOf("\ndiff --git", 1);
+    expect(secondFileBoundary).toBeGreaterThan(0);
+
+    // A limit generous enough to include the first file's complete section
+    // plus the truncation marker, but well short of the second file's full
+    // (deliberately large) section — the safe cut is the file boundary
+    // itself, never a mid-hunk cut into the second file's content.
+    const truncated = await manager.diff(info.workspacePath, info.baseRevision, secondFileBoundary + 200);
+
+    expect(truncated.truncated).toBe(true);
+    expect(truncated.patch.startsWith(full.patch.slice(0, secondFileBoundary))).toBe(true);
+    expect(truncated.patch).not.toContain("+line-0");
+  });
+});
+
 describe("GitWorktreeManager.remove", () => {
   it("removes the worktree and deletes the task branch", async () => {
     const info = await manager.prepare(repoDir, "task-9", tasksDir);

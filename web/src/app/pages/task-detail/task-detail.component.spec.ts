@@ -516,4 +516,176 @@ describe('TaskDetailComponent', () => {
       expect(text).toContain('git worktree remove failed: locked');
     });
   });
+
+  describe('Implementation Diff (Phase 33)', () => {
+    function makeExecutionReport(overrides: Partial<import('../../models/task.model').ExecutionReport> = {}) {
+      return {
+        taskId: 'task-1',
+        executionMode: 'real' as const,
+        status: 'completed' as const,
+        changedFiles: ['src/routes/orders.ts'],
+        tests: [],
+        commandsExecuted: [],
+        notes: [],
+        createdAt: new Date().toISOString(),
+        ...overrides,
+      };
+    }
+
+    function completedRealTask(): Task {
+      return makeTask({ status: 'completed', currentStage: 'completed', executionMode: 'real' });
+    }
+
+    function diffPatchPre(fixture: { nativeElement: HTMLElement }): HTMLElement | null {
+      return fixture.nativeElement.querySelector('.diff-patch pre');
+    }
+
+    it('renders per-file stats and the patch inside a collapsed details block', () => {
+      const task = completedRealTask();
+      const taskService = makeTaskService(task);
+      taskService.getExecutionReport.mockReturnValue(
+        of({
+          report: makeExecutionReport({
+            diff: {
+              baseRevision: 'a'.repeat(40),
+              branch: 'agent/task-task-1',
+              files: [{ path: 'src/routes/orders.ts', additions: 12, deletions: 3 }],
+              summary: '1 file changed, 12 insertions(+), 3 deletions(-)',
+              patch: 'diff --git a/src/routes/orders.ts b/src/routes/orders.ts\n+added line',
+              truncated: false,
+              totalPatchChars: 68,
+            },
+          }),
+        })
+      );
+      TestBed.configureTestingModule({
+        imports: [TaskDetailComponent],
+        providers: [
+          { provide: TaskService, useValue: taskService },
+          { provide: ActivatedRoute, useValue: { snapshot: { paramMap: convertToParamMap({ id: task.id }) } } },
+        ],
+      });
+      const fixture = TestBed.createComponent(TaskDetailComponent);
+      fixture.detectChanges();
+
+      const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
+      expect(text).toContain('src/routes/orders.ts');
+      expect(text).toContain('+12 / -3');
+      expect(text).not.toContain('Diff truncated');
+
+      const pre = diffPatchPre(fixture);
+      expect(pre).toBeTruthy();
+      expect(pre!.textContent).toContain('+added line');
+      const details = fixture.nativeElement.querySelector('.diff-patch') as HTMLDetailsElement;
+      expect(details.open).toBe(false);
+    });
+
+    it('shows an explicit truncation notice and labels the patch as truncated', () => {
+      const task = completedRealTask();
+      const taskService = makeTaskService(task);
+      taskService.getExecutionReport.mockReturnValue(
+        of({
+          report: makeExecutionReport({
+            diff: {
+              baseRevision: 'a'.repeat(40),
+              branch: 'agent/task-task-1',
+              files: [{ path: 'big-file.ts', additions: 5000, deletions: 0 }],
+              summary: '1 file changed, 5000 insertions(+), 0 deletions(-)',
+              patch: 'diff --git a/big-file.ts b/big-file.ts\n+truncated content\n\n--- diff truncated ---\n',
+              truncated: true,
+              totalPatchChars: 500000,
+            },
+          }),
+        })
+      );
+      TestBed.configureTestingModule({
+        imports: [TaskDetailComponent],
+        providers: [
+          { provide: TaskService, useValue: taskService },
+          { provide: ActivatedRoute, useValue: { snapshot: { paramMap: convertToParamMap({ id: task.id }) } } },
+        ],
+      });
+      const fixture = TestBed.createComponent(TaskDetailComponent);
+      fixture.detectChanges();
+
+      const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
+      expect(text).toContain('Diff truncated');
+      expect(text).toContain('View patch (truncated)');
+    });
+
+    it('shows "no changes" state distinctly when the diff exists but has no files', () => {
+      const task = completedRealTask();
+      const taskService = makeTaskService(task);
+      taskService.getExecutionReport.mockReturnValue(
+        of({
+          report: makeExecutionReport({
+            diff: {
+              baseRevision: 'a'.repeat(40),
+              branch: 'agent/task-task-1',
+              files: [],
+              summary: 'No changes.',
+              patch: '',
+              truncated: false,
+              totalPatchChars: 0,
+            },
+          }),
+        })
+      );
+      TestBed.configureTestingModule({
+        imports: [TaskDetailComponent],
+        providers: [
+          { provide: TaskService, useValue: taskService },
+          { provide: ActivatedRoute, useValue: { snapshot: { paramMap: convertToParamMap({ id: task.id }) } } },
+        ],
+      });
+      const fixture = TestBed.createComponent(TaskDetailComponent);
+      fixture.detectChanges();
+
+      const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
+      expect(text).toContain('the execution pass made no changes');
+      expect(diffPatchPre(fixture)).toBeNull();
+    });
+
+    it('shows the mock-mode explanation, not a generic error, when running in mock mode with no diff', () => {
+      const task = makeTask({ status: 'completed', currentStage: 'completed', executionMode: 'mock' });
+      const taskService = makeTaskService(task);
+      taskService.getExecutionReport.mockReturnValue(of({ report: makeExecutionReport({ executionMode: 'mock', diff: undefined }) }));
+      TestBed.configureTestingModule({
+        imports: [TaskDetailComponent],
+        providers: [
+          { provide: TaskService, useValue: taskService },
+          { provide: ActivatedRoute, useValue: { snapshot: { paramMap: convertToParamMap({ id: task.id }) } } },
+        ],
+      });
+      const fixture = TestBed.createComponent(TaskDetailComponent);
+      fixture.detectChanges();
+
+      const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
+      expect(text).toContain('MOCK / SIMULATED EXECUTION');
+      expect(text).toContain('no ground-truth diff is produced in mock mode');
+      expect(diffPatchPre(fixture)).toBeNull();
+    });
+
+    it('shows a generic unavailable message for a real-mode report with no diff (e.g. a failed execution)', () => {
+      const task = completedRealTask();
+      const taskService = makeTaskService(task);
+      taskService.getExecutionReport.mockReturnValue(
+        of({ report: makeExecutionReport({ status: 'failed', diff: undefined, notes: ['Real execution failed: claude CLI exited with code 1'] }) })
+      );
+      TestBed.configureTestingModule({
+        imports: [TaskDetailComponent],
+        providers: [
+          { provide: TaskService, useValue: taskService },
+          { provide: ActivatedRoute, useValue: { snapshot: { paramMap: convertToParamMap({ id: task.id }) } } },
+        ],
+      });
+      const fixture = TestBed.createComponent(TaskDetailComponent);
+      fixture.detectChanges();
+
+      const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
+      expect(text).toContain('No implementation diff available.');
+      expect(text).not.toContain('no ground-truth diff is produced in mock mode');
+      expect(diffPatchPre(fixture)).toBeNull();
+    });
+  });
 });

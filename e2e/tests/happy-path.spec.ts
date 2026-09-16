@@ -32,5 +32,14 @@ test("dashboard → create task → live SSE completion, zero console errors", a
   await expect(page.getByText("Task Complete")).toBeVisible();
   await expect(page.locator(".mode-banner")).toContainText("MOCK / SIMULATED EXECUTION");
 
+  // Phase 33: the Implementation Diff panel renders in a real browser and
+  // correctly reports that mock mode produces no ground-truth diff — this
+  // suite is mock-executor-only (no real `claude` CLI or real git changes
+  // available here), so it cannot exercise real patch content in a
+  // browser; that path is covered instead by the backend real-git
+  // integration tests (reviewDiffContent.test.ts, reviewDiffTruncation.test.ts).
+  await expect(page.getByRole("heading", { name: "Implementation Diff" })).toBeVisible();
+  await expect(page.getByText("no ground-truth diff is produced in mock mode")).toBeVisible();
+
   expect(consoleErrors, `Unexpected browser console errors:\n${consoleErrors.join("\n")}`).toEqual([]);
 });
