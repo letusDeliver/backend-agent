@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile, readFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile, readFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -117,5 +117,24 @@ describe("GitWorktreeManager.remove", () => {
     expect(existsSync(info.workspacePath)).toBe(false);
     const branches = await git(["branch", "--list", info.branch], repoDir);
     expect(branches.trim()).toBe("");
+  });
+
+  it("is idempotent — calling it again once already removed does not throw", async () => {
+    const info = await manager.prepare(repoDir, "task-9b", tasksDir);
+    await manager.remove(repoDir, info.workspacePath, info.branch);
+
+    await expect(manager.remove(repoDir, info.workspacePath, info.branch)).resolves.toBeUndefined();
+  });
+
+  it("surfaces a genuine removal failure instead of swallowing it (Phase 32)", async () => {
+    // A directory that exists on disk but was never registered as a git
+    // worktree (via `git worktree add`) — `git worktree remove --force`
+    // fails against it ("is not a working tree"), which is exactly the
+    // kind of real failure a developer-facing cleanup action must surface
+    // rather than silently report as success.
+    const fakeWorkspace = path.join(tasksDir, "not-a-real-worktree");
+    await mkdir(fakeWorkspace, { recursive: true });
+
+    await expect(manager.remove(repoDir, fakeWorkspace, "agent/task-nonexistent")).rejects.toThrow(GitWorktreeError);
   });
 });
