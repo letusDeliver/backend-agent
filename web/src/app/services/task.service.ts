@@ -63,6 +63,17 @@ export class TaskService {
     return this.http.get<{ reconciliation: Reconciliation | null }>(`${this.baseUrl}/tasks/${id}/reconciliation`);
   }
 
+  resolveConflict(
+    taskId: string,
+    conflictId: string,
+    body: { resolution: string; reason?: string; resolvedBy?: string }
+  ): Observable<{ reconciliation: Reconciliation; resumed: boolean }> {
+    return this.http.post<{ reconciliation: Reconciliation; resumed: boolean }>(
+      `${this.baseUrl}/tasks/${taskId}/reconciliation/conflicts/${conflictId}/resolve`,
+      body
+    );
+  }
+
   getImplementationPlan(id: string): Observable<{ plan: ImplementationPlan | null }> {
     return this.http.get<{ plan: ImplementationPlan | null }>(`${this.baseUrl}/tasks/${id}/implementation-plan`);
   }

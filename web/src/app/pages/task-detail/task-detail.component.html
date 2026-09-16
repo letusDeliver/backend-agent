@@ -176,11 +176,74 @@
         </ul>
       }
 
-      @if (reconciliation.conflicts.length) {
-        <p class="kv-key risks-heading">Conflicts</p>
+      @if (reconciliation.agreements.length) {
+        <p class="kv-key files-heading">Agreements</p>
         <ul class="risk-list">
-          @for (c of reconciliation.conflicts; track c) {
-            <li>{{ c }}</li>
+          @for (a of reconciliation.agreements; track a) {
+            <li>{{ a }}</li>
+          }
+        </ul>
+      }
+
+      @if (reconciliation.conflicts.length) {
+        <p class="kv-key risks-heading">
+          Conflicts
+          @if (reconciliation.status === 'CONFLICT') {
+            <span class="badge badge-red">⚠ requires resolution</span>
+          }
+        </p>
+        @for (conflict of reconciliation.conflicts; track conflict.id) {
+          <div class="decision-block">
+            <p class="decision-title">
+              {{ conflict.subject }}
+              <span class="badge" [ngClass]="conflict.materiality === 'material' ? 'badge-red' : 'badge-neutral'">{{ conflict.materiality }}</span>
+              @if (conflict.resolution) {
+                <span class="badge badge-green">resolved</span>
+              }
+            </p>
+            <p class="decision-detail">{{ conflict.reason }}</p>
+            @for (p of conflict.participants; track p.agent) {
+              <p class="decision-detail">
+                <strong>{{ agentLabels[p.agent] }}</strong> ({{ p.polarity }}@if (p.memoryInfluenced) {, memory-influenced}):
+                {{ p.decision }}
+              </p>
+            }
+            @if (conflict.repositoryEvidence) {
+              <p class="decision-detail"><strong>Repository evidence:</strong> {{ conflict.repositoryEvidence }}</p>
+            }
+            @if (conflict.resolution) {
+              <p class="decision-detail">
+                <strong>Resolution:</strong> {{ conflict.resolution.resolution }}
+                — {{ conflict.resolution.resolvedBy }}, {{ conflict.resolution.resolvedAt | date: 'medium' }}
+              </p>
+            } @else {
+              <div class="conflict-resolve-form">
+                <textarea
+                  class="mono"
+                  rows="2"
+                  placeholder="Resolution (required before implementation can continue)…"
+                  [value]="conflictDraftFor(conflict.id)"
+                  (input)="setConflictDraft(conflict.id, $any($event.target).value)"
+                ></textarea>
+                <button
+                  type="button"
+                  class="btn btn-primary"
+                  [disabled]="resolvingConflictId() === conflict.id || !conflictDraftFor(conflict.id).trim()"
+                  (click)="resolveConflict(conflict)"
+                >
+                  {{ resolvingConflictId() === conflict.id ? 'Resolving…' : 'Resolve Conflict' }}
+                </button>
+              </div>
+            }
+          </div>
+        }
+      }
+
+      @if (reconciliation.unresolvedQuestions.length) {
+        <p class="kv-key risks-heading">Unresolved Questions</p>
+        <ul class="risk-list">
+          @for (q of reconciliation.unresolvedQuestions; track q) {
+            <li>{{ q }}</li>
           }
         </ul>
       }

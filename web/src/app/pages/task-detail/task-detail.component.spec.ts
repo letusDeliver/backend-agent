@@ -3,7 +3,7 @@ import { ActivatedRoute, convertToParamMap } from '@angular/router';
 import { NEVER, of } from 'rxjs';
 import { TaskDetailComponent } from './task-detail.component';
 import { TaskService } from '../../services/task.service';
-import type { Task } from '../../models/task.model';
+import type { Reconciliation, Task } from '../../models/task.model';
 
 function makeTask(overrides: Partial<Task>): Task {
   const now = new Date().toISOString();
@@ -35,7 +35,58 @@ function makeTaskService(task: Task): jest.Mocked<TaskService> {
     getExecutionReport: jest.fn().mockReturnValue(of({ report: null })),
     getReviews: jest.fn().mockReturnValue(of({ reviews: [] })),
     getHandoff: jest.fn().mockReturnValue(of({ handoff: null, markdown: null })),
+    resolveConflict: jest.fn().mockReturnValue(NEVER),
+    cancelTask: jest.fn().mockReturnValue(NEVER),
   } as unknown as jest.Mocked<TaskService>;
+}
+
+function makeConflictReconciliation(overrides: Partial<Reconciliation> = {}): Reconciliation {
+  return {
+    taskId: 'task-1',
+    status: 'CONFLICT',
+    decisions: [],
+    agreements: [],
+    unresolvedQuestions: ['Resolve transaction disagreement between Node.js Backend and Database Agent before implementation.'],
+    risks: [],
+    confidencePercent: 80,
+    conflicts: [
+      {
+        id: 'conflict-1',
+        kind: 'specialist-disagreement',
+        category: 'transaction',
+        subject: 'transaction',
+        detectedAt: 'reconciliation',
+        materiality: 'material',
+        reason: 'Node.js Backend and Database Agent both address "transaction" for this task, but state opposite positions.',
+        resolution: null,
+        createdAt: new Date().toISOString(),
+        participants: [
+          {
+            agent: 'node-backend',
+            decision: 'Use a PostgreSQL transaction for order creation.',
+            rationale: 'Order creation writes must be atomic.',
+            evidence: 'src/routes/orders.ts',
+            confidence: 0.9,
+            polarity: 'affirmative',
+            memoryInfluenced: false,
+            memoryIds: [],
+          },
+          {
+            agent: 'database',
+            decision: 'Do not use a transaction here; keep this eventually consistent.',
+            rationale: 'Order creation now spans two services.',
+            evidence: 'schema.sql',
+            confidence: 0.9,
+            polarity: 'negative',
+            memoryInfluenced: false,
+            memoryIds: [],
+          },
+        ],
+      },
+    ],
+    createdAt: new Date().toISOString(),
+    ...overrides,
+  };
 }
 
 function configure(task: Task) {
@@ -128,5 +179,68 @@ describe('TaskDetailComponent', () => {
     fixture.detectChanges();
     const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
     expect(text).toContain('Not required');
+  });
+
+  it('renders an unresolved CONFLICT with both participants, evidence and a resolve control', () => {
+    const task = makeTask({ status: 'blocked', currentStage: 'reconciling', error: 'Reconciliation found 1 unresolved material engineering conflict(s).' });
+    const taskService = makeTaskService(task);
+    taskService.getReconciliation.mockReturnValue(of({ reconciliation: makeConflictReconciliation() }));
+    TestBed.configureTestingModule({
+      imports: [TaskDetailComponent],
+      providers: [
+        { provide: TaskService, useValue: taskService },
+        { provide: ActivatedRoute, useValue: { snapshot: { paramMap: convertToParamMap({ id: task.id }) } } },
+      ],
+    });
+    const fixture = TestBed.createComponent(TaskDetailComponent);
+    fixture.detectChanges();
+    const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
+
+    expect(text).toContain('CONFLICT');
+    expect(text).toContain('requires resolution');
+    expect(text).toContain('Use a PostgreSQL transaction for order creation.');
+    expect(text).toContain('Do not use a transaction here; keep this eventually consistent.');
+    expect(text).toContain('material');
+
+    const resolveButton = fixture.nativeElement.querySelector('.conflict-resolve-form button') as HTMLButtonElement;
+    expect(resolveButton).toBeTruthy();
+    expect(resolveButton.disabled).toBe(true); // no resolution text entered yet
+
+    const textarea = fixture.nativeElement.querySelector('.conflict-resolve-form textarea') as HTMLTextAreaElement;
+    textarea.value = 'Use the transaction; the eventually-consistent design was rejected.';
+    textarea.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+    expect(resolveButton.disabled).toBe(false);
+
+    resolveButton.click();
+    expect(taskService.resolveConflict).toHaveBeenCalledWith('task-1', 'conflict-1', {
+      resolution: 'Use the transaction; the eventually-consistent design was rejected.',
+    });
+  });
+
+  it('renders a resolved conflict without a resolve form', () => {
+    const task = makeTask({ status: 'planning', currentStage: 'planning' });
+    const taskService = makeTaskService(task);
+    const resolved = makeConflictReconciliation({ status: 'AGREED' });
+    resolved.conflicts[0].resolution = {
+      resolution: 'Use the transaction.',
+      reason: 'Confirmed with the team.',
+      resolvedBy: 'developer',
+      resolvedAt: new Date().toISOString(),
+    };
+    taskService.getReconciliation.mockReturnValue(of({ reconciliation: resolved }));
+    TestBed.configureTestingModule({
+      imports: [TaskDetailComponent],
+      providers: [
+        { provide: TaskService, useValue: taskService },
+        { provide: ActivatedRoute, useValue: { snapshot: { paramMap: convertToParamMap({ id: task.id }) } } },
+      ],
+    });
+    const fixture = TestBed.createComponent(TaskDetailComponent);
+    fixture.detectChanges();
+    const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
+    expect(text).toContain('resolved');
+    expect(text).toContain('developer');
+    expect(fixture.nativeElement.querySelector('.conflict-resolve-form')).toBeNull();
   });
 });

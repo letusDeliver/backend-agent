@@ -257,6 +257,33 @@
   margin-top: 14px;
 }
 
+.conflict-resolve-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.conflict-resolve-form textarea {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-primary);
+  padding: 8px 10px;
+  font-size: 12px;
+  font-family: inherit;
+  resize: vertical;
+}
+
+.conflict-resolve-form textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.conflict-resolve-form .btn {
+  align-self: flex-start;
+}
+
 .risk-list {
   list-style: none;
   padding: 0;

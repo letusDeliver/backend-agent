@@ -137,12 +137,51 @@ export interface ArchitectureDecision {
   owner: AgentType | "orchestrator";
 }
 
+export type DecisionCategory =
+  | "architecture" | "api" | "database" | "data-model" | "transaction"
+  | "validation" | "authentication" | "authorization" | "error-handling"
+  | "performance" | "testing" | "dependency" | "configuration" | "deployment";
+
+export interface ConflictParticipant {
+  agent: AgentType;
+  decision: string;
+  rationale: string;
+  evidence: string;
+  confidence: number;
+  polarity: "affirmative" | "negative";
+  memoryInfluenced: boolean;
+  memoryIds: string[];
+}
+
+export interface ConflictResolution {
+  resolution: string;
+  reason: string;
+  resolvedBy: string;
+  resolvedAt: string;
+}
+
+export interface ReconciliationConflict {
+  id: string;
+  kind: "specialist-disagreement" | "evidence-contradiction";
+  category: DecisionCategory;
+  subject: string;
+  detectedAt: "reconciliation" | "review";
+  participants: ConflictParticipant[];
+  repositoryEvidence?: string;
+  materiality: "material" | "non-material";
+  reason: string;
+  resolution: ConflictResolution | null;
+  createdAt: string;
+}
+
 export interface Reconciliation {
   taskId: string;
   status: "AGREED" | "CONFLICT" | "UNKNOWN" | "NEEDS_USER_DECISION";
   decisions: ArchitectureDecision[];
+  agreements: string[];
+  conflicts: ReconciliationConflict[];
+  unresolvedQuestions: string[];
   risks: SpecialistRisk[];
-  conflicts: string[];
   confidencePercent: number;
   createdAt: string;
 }

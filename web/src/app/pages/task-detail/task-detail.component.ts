@@ -11,6 +11,7 @@ import {
   FinalHandoff,
   ImplementationPlan,
   Reconciliation,
+  ReconciliationConflict,
   ReviewReport,
   SpecialistReport,
   Task,
@@ -65,6 +66,8 @@ export class TaskDetailComponent implements OnInit, OnDestroy {
   readonly notFound = signal(false);
   readonly showActivityLog = signal(false);
   readonly cancelling = signal(false);
+  readonly resolvingConflictId = signal<string | null>(null);
+  readonly conflictDraft = signal<Record<string, string>>({});
 
   readonly isTerminal = computed(() => {
     const task = this.task();
@@ -197,6 +200,28 @@ export class TaskDetailComponent implements OnInit, OnDestroy {
         this.cancelling.set(false);
       },
       error: () => this.cancelling.set(false),
+    });
+  }
+
+  conflictDraftFor(conflictId: string): string {
+    return this.conflictDraft()[conflictId] ?? '';
+  }
+
+  setConflictDraft(conflictId: string, value: string): void {
+    this.conflictDraft.update((draft) => ({ ...draft, [conflictId]: value }));
+  }
+
+  resolveConflict(conflict: ReconciliationConflict): void {
+    const resolution = this.conflictDraftFor(conflict.id).trim();
+    if (!resolution || this.resolvingConflictId()) return;
+    this.resolvingConflictId.set(conflict.id);
+    this.taskService.resolveConflict(this.taskId, conflict.id, { resolution }).subscribe({
+      next: ({ reconciliation }) => {
+        this.reconciliation.set(reconciliation);
+        this.resolvingConflictId.set(null);
+        this.loadTask();
+      },
+      error: () => this.resolvingConflictId.set(null),
     });
   }
 }
