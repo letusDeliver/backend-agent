@@ -3,7 +3,7 @@ import { ActivatedRoute, convertToParamMap } from '@angular/router';
 import { NEVER, Observable, of } from 'rxjs';
 import { TaskDetailComponent } from './task-detail.component';
 import { TaskService } from '../../services/task.service';
-import type { Reconciliation, Task } from '../../models/task.model';
+import type { EventType, Reconciliation, Task, TaskEvent } from '../../models/task.model';
 
 function makeTask(overrides: Partial<Task>): Task {
   const now = new Date().toISOString();
@@ -834,5 +834,120 @@ describe('TaskDetailComponent', () => {
         });
       }
     );
+  });
+});
+
+/** A minimal, timestamp-only TaskEvent for the Phase 40 timing tests below. */
+function makeEvent(type: EventType, createdAt: string): TaskEvent {
+  return { id: `${type}-${createdAt}`, taskId: 'task-1', type, message: '', createdAt };
+}
+
+describe('TaskDetailComponent — stage/specialist timing (Phase 40)', () => {
+  it('computes a stage duration purely from its start/complete event timestamps', () => {
+    const task = makeTask({ status: 'analyzing', currentStage: 'analyzing' });
+    configure(task);
+    const fixture = TestBed.createComponent(TaskDetailComponent);
+    fixture.detectChanges();
+    const component = fixture.componentInstance;
+
+    component.events.set([
+      makeEvent('REPOSITORY_INSPECTION_STARTED', '2026-01-01T00:00:00.000Z'),
+      makeEvent('REPOSITORY_INSPECTION_COMPLETED', '2026-01-01T00:00:02.500Z'),
+    ]);
+
+    expect(component.stageDurationLabel('inspecting')).toBe('2.5s');
+  });
+
+  it('sums every occurrence of a recurring start/complete pair (e.g. corrective implementation passes)', () => {
+    const task = makeTask({ status: 'reviewing', currentStage: 'reviewing' });
+    configure(task);
+    const fixture = TestBed.createComponent(TaskDetailComponent);
+    fixture.detectChanges();
+    const component = fixture.componentInstance;
+
+    component.events.set([
+      makeEvent('IMPLEMENTATION_STARTED', '2026-01-01T00:00:00.000Z'),
+      makeEvent('IMPLEMENTATION_COMPLETED', '2026-01-01T00:00:01.000Z'), // 1s
+      makeEvent('REVIEW_STARTED', '2026-01-01T00:00:01.000Z'),
+      makeEvent('REVIEW_COMPLETED', '2026-01-01T00:00:01.500Z'),
+      makeEvent('IMPLEMENTATION_STARTED', '2026-01-01T00:00:02.000Z'),
+      makeEvent('IMPLEMENTATION_COMPLETED', '2026-01-01T00:00:03.500Z'), // 1.5s more -> 2.5s total
+    ]);
+
+    expect(component.stageDurationLabel('implementing')).toBe('2.5s');
+  });
+
+  it('returns null for a stage with no timing signal yet, rather than a misleading 0', () => {
+    const task = makeTask({ status: 'created', currentStage: 'created' });
+    configure(task);
+    const fixture = TestBed.createComponent(TaskDetailComponent);
+    fixture.detectChanges();
+    const component = fixture.componentInstance;
+
+    component.events.set([]);
+    expect(component.stageDurationLabel('implementing')).toBeNull();
+  });
+
+  it("computes a specialist's own analysis duration from AGENT_ANALYSIS_STARTED to that agent's report timestamp", () => {
+    const task = makeTask({ status: 'analyzing', currentStage: 'analyzing' });
+    configure(task);
+    const fixture = TestBed.createComponent(TaskDetailComponent);
+    fixture.detectChanges();
+    const component = fixture.componentInstance;
+
+    component.events.set([makeEvent('AGENT_ANALYSIS_STARTED', '2026-01-01T00:00:00.000Z')]);
+    component.specialistReports.set([
+      {
+        agent: 'node-backend',
+        taskId: 'task-1',
+        status: 'completed',
+        recommendation: 'r',
+        findings: [],
+        risks: [],
+        assumptions: [],
+        confidence: 0.9,
+        executionMode: 'mock',
+        createdAt: '2026-01-01T00:00:03.200Z',
+      },
+    ]);
+
+    expect(component.specialistDurationLabel('node-backend')).toBe('3.2s');
+    expect(component.specialistDurationLabel('database')).toBeNull();
+  });
+
+  it('formats sub-second durations in milliseconds and multi-minute durations as "Xm YYs"', () => {
+    const task = makeTask({ status: 'analyzing', currentStage: 'analyzing' });
+    configure(task);
+    const fixture = TestBed.createComponent(TaskDetailComponent);
+    fixture.detectChanges();
+    const component = fixture.componentInstance;
+
+    component.events.set([
+      makeEvent('REPOSITORY_INSPECTION_STARTED', '2026-01-01T00:00:00.000Z'),
+      makeEvent('REPOSITORY_INSPECTION_COMPLETED', '2026-01-01T00:00:00.340Z'),
+    ]);
+    expect(component.stageDurationLabel('inspecting')).toBe('340ms');
+
+    component.events.set([
+      makeEvent('AGENT_ANALYSIS_STARTED', '2026-01-01T00:00:00.000Z'),
+      makeEvent('AGENT_ANALYSIS_COMPLETED', '2026-01-01T00:01:05.000Z'),
+    ]);
+    expect(component.stageDurationLabel('analyzing')).toBe('1m 05s');
+  });
+
+  it('shows wall-clock time elapsed since task creation, based on the latest known event', () => {
+    const task = makeTask({
+      status: 'analyzing',
+      currentStage: 'analyzing',
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-01T00:00:00.000Z',
+    });
+    configure(task);
+    const fixture = TestBed.createComponent(TaskDetailComponent);
+    fixture.detectChanges();
+    const component = fixture.componentInstance;
+
+    component.events.set([makeEvent('AGENT_ANALYSIS_STARTED', '2026-01-01T00:00:04.000Z')]);
+    expect(component.totalElapsedLabel()).toBe('4.0s');
   });
 });
