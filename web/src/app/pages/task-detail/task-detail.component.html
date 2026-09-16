@@ -13,6 +13,9 @@
       <span class="badge status-badge" [ngClass]="'badge-' + (task.status === 'completed' ? 'green' : task.status === 'failed' ? 'red' : task.status === 'blocked' ? 'amber' : task.status === 'cancelled' ? 'neutral' : 'blue')">
         {{ task.status }}
       </span>
+      @if (totalElapsedLabel(); as elapsed) {
+        <span class="badge badge-neutral elapsed-badge" title="Wall-clock time since this task was created">⏱ {{ elapsed }}</span>
+      }
       @if (!isTerminal()) {
         <button class="btn btn-danger" [disabled]="cancelling()" (click)="cancelTask()">
           {{ cancelling() ? 'Cancelling…' : 'Cancel Execution' }}
@@ -123,6 +126,9 @@
           }
         </span>
         <span class="timeline-label">{{ stage.label }}</span>
+        @if (stageDurationLabel(stage.key); as duration) {
+          <span class="timeline-duration">{{ duration }}</span>
+        }
       </div>
     }
   </div>
@@ -311,8 +317,11 @@
             <p class="specialist-status">Status: {{ report.status }} ({{ (report.confidence * 100) | number: '1.0-0' }}% confidence)</p>
             <p class="specialist-metric">Findings: {{ report.findings.length }}</p>
             <p class="specialist-metric">Risks: {{ report.risks.length }}</p>
+            @if (specialistDurationLabel(agent); as duration) {
+              <p class="specialist-metric specialist-duration">Analysis took {{ duration }}</p>
+            }
           } @else {
-            <p class="specialist-status">Status: Analyzing…</p>
+            <p class="specialist-status">Status: Analyzing<span class="analyzing-dots"></span></p>
           }
         } @else {
           <div class="specialist-title muted">— {{ agentLabels[agent] }}</div>

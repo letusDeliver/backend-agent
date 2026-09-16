@@ -50,6 +50,47 @@ const ALL_AGENTS: AgentType[] = ['python-backend', 'node-backend', 'database'];
 const TERMINAL_STATUSES = new Set(['completed', 'failed', 'blocked', 'cancelled']);
 
 /**
+ * Phase 40: every timing figure on this page is derived purely from
+ * `TaskEvent.createdAt` timestamps already produced by the backend (or, for
+ * specialists, from `SpecialistReport.createdAt`) — no new backend field,
+ * no new event. Some stage-start/complete event pairs can recur within one
+ * task (IMPLEMENTATION_STARTED/COMPLETED across corrective review passes or
+ * backlog subtasks, REVIEW_STARTED/COMPLETED across review attempts), so
+ * this sums every paired occurrence rather than assuming exactly one.
+ */
+function sumPairedDurationsMs(events: TaskEvent[], startType: string, completeType: string): number | null {
+  let total = 0;
+  let startedAt: number | null = null;
+  let sawAnyPair = false;
+  for (const e of events) {
+    const t = new Date(e.createdAt).getTime();
+    if (e.type === startType) {
+      startedAt = t;
+    } else if (e.type === completeType && startedAt !== null) {
+      total += t - startedAt;
+      startedAt = null;
+      sawAnyPair = true;
+    }
+  }
+  return sawAnyPair ? total : null;
+}
+
+function timestampOf(events: TaskEvent[], type: string): number | null {
+  const found = events.find((e) => e.type === type);
+  return found ? new Date(found.createdAt).getTime() : null;
+}
+
+/** Human-readable duration ("340ms", "2.1s", "1m 05s") for a small timing badge. */
+function formatDurationMs(ms: number): string {
+  if (ms < 1000) return `${Math.max(0, Math.round(ms))}ms`;
+  const totalSeconds = ms / 1000;
+  if (totalSeconds < 60) return `${totalSeconds.toFixed(1)}s`;
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = Math.round(totalSeconds % 60);
+  return `${minutes}m ${seconds.toString().padStart(2, '0')}s`;
+}
+
+/**
  * Statuses Retry is offered for (Phase 31). Deliberately the same set as
  * `TaskOrchestrator.RETRYABLE_STATUSES` on the server — kept as a separate
  * constant from `TERMINAL_STATUSES` since Retry and Cancel are different
@@ -376,6 +417,73 @@ export class TaskDetailComponent implements OnInit, OnDestroy {
 
   specialistFor(agent: AgentType): SpecialistReport | undefined {
     return this.specialistReports().find((r) => r.agent === agent);
+  }
+
+  /**
+   * Phase 40: how long a completed/active stage actually took, derived
+   * entirely from existing event timestamps — no backend change. Returns
+   * `null` when the stage hasn't started, or has no defined timing pair
+   * (`created`/`completed` are markers, not timed spans).
+   */
+  stageDurationLabel(stageKey: string): string | null {
+    const events = this.events();
+    if (events.length === 0) return null;
+    let ms: number | null = null;
+
+    switch (stageKey) {
+      case 'inspecting':
+        ms = sumPairedDurationsMs(events, 'REPOSITORY_INSPECTION_STARTED', 'REPOSITORY_INSPECTION_COMPLETED');
+        break;
+      case 'routing': {
+        const start = timestampOf(events, 'REPOSITORY_INSPECTION_COMPLETED');
+        const end = timestampOf(events, 'AGENT_SELECTED');
+        ms = start !== null && end !== null ? end - start : null;
+        break;
+      }
+      case 'analyzing':
+        ms = sumPairedDurationsMs(events, 'AGENT_ANALYSIS_STARTED', 'AGENT_ANALYSIS_COMPLETED');
+        break;
+      case 'reconciling':
+        ms = sumPairedDurationsMs(events, 'RECONCILIATION_STARTED', 'RECONCILIATION_COMPLETED');
+        break;
+      case 'planning': {
+        const start = timestampOf(events, 'RECONCILIATION_COMPLETED');
+        const end = timestampOf(events, 'IMPLEMENTATION_PLAN_CREATED');
+        ms = start !== null && end !== null ? end - start : null;
+        break;
+      }
+      case 'implementing':
+        ms = sumPairedDurationsMs(events, 'IMPLEMENTATION_STARTED', 'IMPLEMENTATION_COMPLETED');
+        break;
+      case 'reviewing':
+        ms = sumPairedDurationsMs(events, 'REVIEW_STARTED', 'REVIEW_COMPLETED');
+        break;
+      default:
+        return null;
+    }
+
+    return ms !== null && ms >= 0 ? formatDurationMs(ms) : null;
+  }
+
+  /** How long a specialist's own analysis took, from the shared analysis-started event to that agent's own report timestamp. */
+  specialistDurationLabel(agent: AgentType): string | null {
+    const report = this.specialistFor(agent);
+    if (!report) return null;
+    const started = timestampOf(this.events(), 'AGENT_ANALYSIS_STARTED');
+    if (started === null) return null;
+    const ms = new Date(report.createdAt).getTime() - started;
+    return ms >= 0 ? formatDurationMs(ms) : null;
+  }
+
+  /** Wall-clock time elapsed so far, from task creation to the latest known event — updates as new events arrive. */
+  totalElapsedLabel(): string | null {
+    const task = this.task();
+    const events = this.events();
+    if (!task) return null;
+    const start = new Date(task.createdAt).getTime();
+    const latest = events.length > 0 ? new Date(events[events.length - 1].createdAt).getTime() : new Date(task.updatedAt).getTime();
+    const ms = latest - start;
+    return ms >= 0 ? formatDurationMs(ms) : null;
   }
 
   reviewFor(agent: AgentType): ReviewReport | undefined {
