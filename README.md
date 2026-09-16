@@ -9,7 +9,7 @@ Describe a requirement, point it at a real repository, and watch an orchestrator
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.x%20%2F%206.x-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![Express](https://img.shields.io/badge/Express-4.x-000000?logo=express&logoColor=white)](https://expressjs.com/)
 [![Angular](https://img.shields.io/badge/Angular-22-DD0031?logo=angular&logoColor=white)](https://angular.dev/)
-[![Tests](https://img.shields.io/badge/tests-118%20passing-33c481)](#testing)
+[![Tests](https://img.shields.io/badge/tests-168%20passing-33c481)](#testing)
 [![CI](https://github.com/letusDeliver/backend-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/letusDeliver/backend-agent/actions/workflows/ci.yml)
 
 </div>
@@ -30,7 +30,7 @@ You describe a backend requirement in plain English and point it at a real local
 
 - inspects the actual repository — language, framework, database, test commands — rather than guessing from your description,
 - routes only the specialists the task needs (Python, Node.js, Database — never all three by default),
-- reconciles their recommendations into one plan, flagging conflicts instead of silently picking a side,
+- reconciles their recommendations into one plan, detecting genuine engineering conflicts (not just different wording) and blocking on material ones until a developer resolves them, instead of silently picking a side,
 - hands the reconciled plan to Claude Code to implement,
 - runs the specialist reviews, sending blocking findings back for a bounded number of corrective passes,
 - produces a final handoff with everything that happened — files changed, tests run, decisions made, risks disclosed.
@@ -45,7 +45,8 @@ Every stage is inspectable. Nothing is claimed that didn't actually happen.
 - ✓ **Artifact-first task workspaces** on disk (`tasks/<task-id>/`) — every specialist report, reconciliation, plan, execution report and review is a real inspectable file
 - ✓ **Dual execution modes** — a safe, deterministic **mock** executor by default, and a **real** executor that drives the actual Claude Code CLI, opt-in only, never disguised as the other
 - ✓ **Bounded review loop** — blocking findings return the task to implementation automatically, up to a configurable retry limit, instead of looping forever or completing regardless
-- ✓ **118 automated tests** (101 backend + 16 frontend) across the routing engine, repository inspector, reconciliation logic, memory retrieval/candidate-lessons/approval, API, SSE stream, git-worktree isolation, real-executor hardening (timeout/cancellation/ground-truth diff), and full end-to-end happy paths — plus a committed browser E2E test and CI running all of it on every push
+- ✓ **Deterministic conflict detection** — reconciliation compares specialists' actual recommendations (category → subject → polarity, no LLM call), not just routing/failure signals; a material conflict blocks implementation until a developer resolves it through a dedicated API, with full evidence and provenance recorded
+- ✓ **168 automated tests** (149 backend + 18 frontend) across the routing engine, repository inspector, reconciliation/conflict-detection logic, memory retrieval/candidate-lessons/approval, API, SSE stream, git-worktree isolation, real-executor hardening (timeout/cancellation/ground-truth diff), and full end-to-end happy paths — plus a committed browser E2E test and CI running all of it on every push
 - ✓ **Isolated real execution** — Claude Code runs against a dedicated git worktree/branch, never your live working tree, with a repository-safety guard, timeout, and mid-run cancellation
 - ✓ **Engineering memory, human-gated** — a completed task can produce candidate lessons; only after a developer approves one does it ever influence a later task's specialist analysis, with the full retrieval decision recorded per task
 
@@ -127,6 +128,7 @@ CI runs all of the above on every push and pull request — see [.github/workflo
 | [docs/MEMORY_LAYER.md](docs/MEMORY_LAYER.md) | How memory retrieval, the context pack, candidate lessons and human approval actually work |
 | [docs/API.md](docs/API.md) | Full REST + SSE API reference |
 | [docs/AGENT_WORKFLOW.md](docs/AGENT_WORKFLOW.md) | How specialists, reconciliation and review actually work |
+| [docs/RECONCILIATION_CONFLICTS.md](docs/RECONCILIATION_CONFLICTS.md) | What counts as a conflict, how detection works, evidence/memory precedence, and the resolution workflow |
 | [docs/LOCAL_DEVELOPMENT.md](docs/LOCAL_DEVELOPMENT.md) | Environment variables, setup, troubleshooting |
 | [docs/MVP_IMPLEMENTATION_ASSESSMENT.md](docs/MVP_IMPLEMENTATION_ASSESSMENT.md) | How this was derived from the project's source design documents |
 | [docs/MVP_COMPLETION_REPORT.md](docs/MVP_COMPLETION_REPORT.md) | What was built, tested, and what's next |

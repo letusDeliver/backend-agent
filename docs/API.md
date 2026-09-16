@@ -63,7 +63,11 @@ Event types: `TASK_CREATED`, `REPOSITORY_INSPECTION_STARTED`, `REPOSITORY_INSPEC
 
 ## `GET /tasks/:id/reconciliation`
 
-`{ "reconciliation": Reconciliation | null }`
+`{ "reconciliation": Reconciliation | null }`. `Reconciliation.conflicts` is a structured `ReconciliationConflict[]` (category, subject, participants with their recommendation/evidence/polarity, materiality, resolution) — not free text. See [RECONCILIATION_CONFLICTS.md](RECONCILIATION_CONFLICTS.md) for the full shape and detection model.
+
+### `POST /tasks/:id/reconciliation/conflicts/:conflictId/resolve`
+
+Body: `{ "resolution": string, "reason"?: string, "resolvedBy"?: string }`. `resolution` is required and non-empty. Persists the resolution with a server-set `resolvedAt`; the client can never write any other field of the conflict. `404` if the task or conflict doesn't exist, `409` if the conflict is already resolved, `400` if `resolution` is missing/empty. Response: `{ "reconciliation": Reconciliation, "resumed": boolean }` — `resumed` is `true` when this resolution cleared the last unresolved material conflict on a `blocked` task, in which case the orchestrator resumes asynchronously from the planning stage (poll `GET /tasks/:id` or the event stream as with `POST /tasks/:id/start`). As with `POST /memory/:id/approve`, `resolvedBy` is free text — this MVP has no auth system.
 
 ## `GET /tasks/:id/implementation-plan`
 

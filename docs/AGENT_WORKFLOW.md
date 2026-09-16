@@ -23,10 +23,11 @@ Before specialists analyze, the orchestrator retrieves relevant **validated** en
 Selected specialists analyze in parallel (`ClaudeCodeExecutor.analyze()`), each returning a `SpecialistReport` (recommendation, findings with evidence, risks, assumptions, confidence) informed by that filtered memory context. The orchestrator then reconciles them into one of:
 
 - **AGREED** — proceed to planning.
+- **CONFLICT** — a deterministic, keyword-based comparison (category → subject → polarity — no LLM call) found two specialists making genuinely incompatible recommendations about the same decision, or a recommendation that contradicts detected repository evidence. An unresolved *material* conflict blocks the task until a developer resolves it via `POST /tasks/:id/reconciliation/conflicts/:conflictId/resolve`; a non-material one is surfaced but doesn't block. See [RECONCILIATION_CONFLICTS.md](RECONCILIATION_CONFLICTS.md) for the full detection model.
 - **UNKNOWN** — a specialist analysis failed or produced no usable output; task is `blocked` rather than proceeding on insufficient evidence.
 - **NEEDS_USER_DECISION** — routing flagged a high-impact scenario (e.g. a cross-stack migration); task is `blocked` for a human decision rather than the orchestrator silently picking a side.
 
-This follows `orchestrator/ORCHESTRATOR.md`'s "Do Not" list: the orchestrator does not silently resolve material conflicts.
+This follows `orchestrator/ORCHESTRATOR.md`'s "Do Not" list: the orchestrator does not silently resolve material conflicts — different wording alone is never treated as a conflict, but a genuine contradiction is never discarded either.
 
 ## Implementation plan → execution
 
@@ -46,6 +47,8 @@ The UI always labels which mode produced a given task's artifacts (`REAL EXECUTI
 ## Review loop
 
 After implementation, each selected specialist reviews the result from its own domain (`skills/review-routing.md`): the backend specialist reviews application behavior, the database specialist reviews persistence when applicable. A `blocking` finding sends the task back to `implementing` for a corrective pass; `warning` findings are disclosed in the final handoff but don't block completion. Bounded by `MAX_REVIEW_RETRIES` (default 2) — after that, the task becomes `blocked` rather than looping indefinitely.
+
+If two specialists' blocking findings are themselves in material conflict (the same category/subject/polarity check reconciliation uses), the orchestrator doesn't attempt a corrective pass that can't satisfy both — it appends the conflict to the task's reconciliation record and blocks immediately, resolved through the same conflict-resolution endpoint described above.
 
 ## Final handoff
 
