@@ -18,4 +18,9 @@ export const config = {
   maxReviewRetries: Number(process.env.MAX_REVIEW_RETRIES ?? 2),
   claudeCliPath: process.env.CLAUDE_CLI_PATH ?? "claude",
   claudeTimeoutMs: Number(process.env.CLAUDE_TIMEOUT_MS ?? 120_000),
+  // Maximum characters of unified-diff patch text captured/stored per task
+  // (Phase 33). Bounds prompt size, artifact size, and UI payload size — a
+  // diff larger than this is truncated at a file boundary, never dropped
+  // silently (see GitWorktreeManager.diff()).
+  maxDiffPatchChars: Number(process.env.MAX_DIFF_PATCH_CHARS ?? 200_000),
 };

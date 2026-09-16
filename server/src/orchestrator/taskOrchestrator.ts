@@ -508,7 +508,14 @@ export class TaskOrchestrator {
       status: report.status,
       changedFiles: report.changedFiles,
       tests,
-      diff: report.diff,
+      // Metadata only — never the patch text itself. The event log is not
+      // the patch's storage location (execution-report.json already is);
+      // repeating a potentially large, bounded-but-still-sizable patch into
+      // every SSE event and the on-disk event log for no reader that
+      // currently uses it would be pure bloat (Phase 33).
+      diff: report.diff
+        ? { baseRevision: report.diff.baseRevision, branch: report.diff.branch, files: report.diff.files, summary: report.diff.summary, truncated: report.diff.truncated }
+        : undefined,
     });
     return report;
   }
@@ -615,6 +622,7 @@ export class TaskOrchestrator {
       reviewsFailed,
       architectureDecisions: reconciliation?.decisions.length ?? 0,
       warnings,
+      diffTruncated: executionReport.diff?.truncated ?? false,
       executionMode: task.executionMode,
       status: "completed",
       createdAt: new Date().toISOString(),
@@ -688,6 +696,12 @@ function renderHandoffMarkdown(
   lines.push("## Files Changed", "", ...(executionReport.changedFiles.length ? executionReport.changedFiles.map((f) => `- ${f}`) : ["(none)"]), "");
   if (executionReport.diff) {
     lines.push("## Diff", "", executionReport.diff.summary, "");
+    if (executionReport.diff.truncated) {
+      lines.push(
+        `_The captured patch was truncated in storage (showing ${executionReport.diff.patch.length} of ${executionReport.diff.totalPatchChars} characters). The full ground-truth diff is still available by checking out \`${executionReport.diff.branch}\`._`,
+        ""
+      );
+    }
   }
   lines.push("## Tests", "");
   for (const t of executionReport.tests) {

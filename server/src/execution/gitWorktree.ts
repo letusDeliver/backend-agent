@@ -24,6 +24,35 @@ export interface DiffFile {
 export interface DiffResult {
   files: DiffFile[];
   summary: string;
+  /** Bounded unified-diff patch text — see `bindPatch()`. */
+  patch: string;
+  truncated: boolean;
+  /** Full, untruncated patch length, regardless of `truncated`. */
+  totalPatchChars: number;
+}
+
+/**
+ * Bounds `rawPatch` to at most `maxChars`, cutting at a `diff --git` file
+ * boundary where one exists within budget rather than mid-hunk. If even the
+ * first file's section alone exceeds the budget, falls back to a hard
+ * character cut — still bounded, still explicitly marked, never silent.
+ */
+function boundPatch(rawPatch: string, maxChars: number): { patch: string; truncated: boolean } {
+  if (rawPatch.length <= maxChars) return { patch: rawPatch, truncated: false };
+
+  const marker = "\n\n--- diff truncated: exceeded the platform's maximum diff size ---\n";
+  const budget = Math.max(maxChars - marker.length, 0);
+
+  let lastSafeCut = 0;
+  const fileBoundaryPattern = /\ndiff --git /g;
+  let match: RegExpExecArray | null;
+  while ((match = fileBoundaryPattern.exec(rawPatch)) !== null) {
+    if (match.index > budget) break;
+    lastSafeCut = match.index;
+  }
+
+  const cut = lastSafeCut > 0 ? lastSafeCut : budget;
+  return { patch: rawPatch.slice(0, cut) + marker, truncated: true };
 }
 
 /**
@@ -121,7 +150,12 @@ export class GitWorktreeManager {
     return { committed: true };
   }
 
-  async diff(workspacePath: string, baseRevision: string): Promise<DiffResult> {
+  /**
+   * `maxPatchChars` bounds the captured patch text (Phase 33) — defaulted
+   * so every pre-existing caller/test keeps working unchanged; real callers
+   * pass `config.maxDiffPatchChars` explicitly.
+   */
+  async diff(workspacePath: string, baseRevision: string, maxPatchChars = 200_000): Promise<DiffResult> {
     const numstat = await git(["diff", "--numstat", baseRevision, "HEAD"], workspacePath);
     const files: DiffFile[] = numstat
       .split("\n")
@@ -142,7 +176,13 @@ export class GitWorktreeManager {
         ? "No changes."
         : `${files.length} file${files.length === 1 ? "" : "s"} changed, ${totalAdd} insertion${totalAdd === 1 ? "" : "s"}(+), ${totalDel} deletion${totalDel === 1 ? "" : "s"}(-)`;
 
-    return { files, summary };
+    // Ground-truth patch content, not just counts — the actual evidence a
+    // reviewer or developer needs to judge the change (Phase 33). Skipped
+    // when there's nothing to diff.
+    const rawPatch = files.length === 0 ? "" : await git(["diff", baseRevision, "HEAD"], workspacePath);
+    const { patch, truncated } = boundPatch(rawPatch, maxPatchChars);
+
+    return { files, summary, patch, truncated, totalPatchChars: rawPatch.length };
   }
 
   /**
