@@ -9,7 +9,7 @@ import type { TaskStore } from "../src/store/taskStore.js";
 import type { ArtifactStore as ArtifactStoreType } from "../src/artifacts/artifactStore.js";
 import type { TaskOrchestrator as TaskOrchestratorType } from "../src/orchestrator/taskOrchestrator.js";
 import type { GitWorktreeManager as GitWorktreeManagerType } from "../src/execution/gitWorktree.js";
-import type { ClaudeCodeExecutor, AnalyzeParams, ImplementParams, ReviewParams, RunTestsParams } from "../src/execution/ClaudeCodeExecutor.js";
+import type { ClaudeCodeExecutor, AnalyzeParams, DirectionDecision, DirectionDecisionParams, ImplementParams, ReviewParams, RunTestsParams } from "../src/execution/ClaudeCodeExecutor.js";
 import type { ExecutionReport, ReviewReport, SpecialistReport, Task, TestRunResult } from "../src/types/index.js";
 
 const execFileAsync = promisify(execFile);
@@ -71,6 +71,10 @@ class AlwaysPassRealExecutor implements ClaudeCodeExecutor {
 
   cancel(_taskId: string): void {
     // synchronous fixture — nothing to cancel
+  }
+
+  async decideDirection(_params: DirectionDecisionParams): Promise<DirectionDecision> {
+    throw new Error("decideDirection is not exercised by this fixture.");
   }
 }
 
@@ -138,6 +142,10 @@ class ConflictingRealExecutor implements ClaudeCodeExecutor {
 
   cancel(_taskId: string): void {
     // synchronous fixture — nothing to cancel
+  }
+
+  async decideDirection(_params: DirectionDecisionParams): Promise<DirectionDecision> {
+    throw new Error("decideDirection is not exercised by this fixture.");
   }
 }
 

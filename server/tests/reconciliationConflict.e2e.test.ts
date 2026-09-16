@@ -5,7 +5,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { TaskStore } from "../src/store/taskStore.js";
 import type { ArtifactStore as ArtifactStoreType } from "../src/artifacts/artifactStore.js";
 import type { TaskOrchestrator as TaskOrchestratorType } from "../src/orchestrator/taskOrchestrator.js";
-import type { ClaudeCodeExecutor, AnalyzeParams, ImplementParams, ReviewParams, RunTestsParams } from "../src/execution/ClaudeCodeExecutor.js";
+import type { ClaudeCodeExecutor, AnalyzeParams, DirectionDecision, DirectionDecisionParams, ImplementParams, ReviewParams, RunTestsParams } from "../src/execution/ClaudeCodeExecutor.js";
 import type { ExecutionReport, ReviewReport, SpecialistReport, TestRunResult } from "../src/types/index.js";
 import { recomputeStatus } from "../src/orchestrator/reconciliation.js";
 
@@ -67,6 +67,10 @@ class ConflictingStubExecutor implements ClaudeCodeExecutor {
 
   cancel(_taskId: string): void {
     // synchronous fixture — nothing to cancel
+  }
+
+  async decideDirection(_params: DirectionDecisionParams): Promise<DirectionDecision> {
+    throw new Error("decideDirection is not exercised by this fixture.");
   }
 }
 
